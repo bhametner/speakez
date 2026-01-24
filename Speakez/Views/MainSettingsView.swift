@@ -715,6 +715,8 @@ struct AudioSection: View {
 
 struct PermissionsSection: View {
     @ObservedObject var appState: AppState
+    @State private var permissionCheckTimer: Timer?
+    @State private var isCheckingPermissions = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
@@ -750,24 +752,57 @@ struct PermissionsSection: View {
                             .foregroundColor(Theme.Colors.sharpGreen)
                     }
                 }
+            } else if isCheckingPermissions {
+                SettingsGroup(title: "STATUS") {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Waiting for permissions... (checking every second)")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.textSecondary)
+                    }
+                }
             }
             
-            SettingsGroup(title: "HELP") {
+            SettingsGroup(title: "TROUBLESHOOTING") {
                 VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    Text("If permissions aren't working, try removing and re-adding Speakez in System Settings, then restart the app.")
-                        .font(.system(size: 12))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("If Accessibility permission isn't detected:")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Theme.Colors.textPrimary)
+                        
+                        Text("1. Open System Settings → Privacy & Security → Accessibility")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.textSecondary)
+                        Text("2. Remove Speakez from the list (click −)")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.textSecondary)
+                        Text("3. Add it back (click +) and select Speakez.app")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.textSecondary)
+                        Text("4. Restart Speakez")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.textSecondary)
+                    }
+                    
+                    Text("Note: During development, macOS requires re-adding the app when it's rebuilt. This won't be needed for the final release version.")
+                        .font(.system(size: 11))
                         .foregroundColor(Theme.Colors.textSecondary)
+                        .italic()
+                        .padding(.top, 4)
                     
                     HStack(spacing: Theme.Spacing.sm) {
-                        Button("Open System Settings") {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
+                        Button("Open Accessibility Settings") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                                 NSWorkspace.shared.open(url)
                             }
                         }
                         .buttonStyle(.sharpSecondary)
                         
-                        Button("Refresh Status") {
-                            checkPermissions()
+                        Button("Open Microphone Settings") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                                NSWorkspace.shared.open(url)
+                            }
                         }
                         .buttonStyle(.sharpGhost)
                     }
@@ -776,17 +811,47 @@ struct PermissionsSection: View {
             
             Spacer()
         }
-        .onAppear { checkPermissions() }
+        .onAppear { 
+            startPolling()
+        }
+        .onDisappear {
+            stopPolling()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Check permissions when app becomes active (user returned from System Settings)
+            checkPermissions()
+        }
+    }
+    
+    private func startPolling() {
+        isCheckingPermissions = true
+        checkPermissions()
+        
+        // Poll every second while this view is visible
+        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            checkPermissions()
+            
+            // Stop polling once all permissions are granted
+            if appState.hasMicrophonePermission && appState.hasAccessibilityPermission {
+                stopPolling()
+            }
+        }
+    }
+    
+    private func stopPolling() {
+        permissionCheckTimer?.invalidate()
+        permissionCheckTimer = nil
+        isCheckingPermissions = false
     }
     
     private func checkPermissions() {
         // Check microphone
         let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        appState.hasMicrophonePermission = micGranted
+        if micGranted != appState.hasMicrophonePermission {
+            appState.hasMicrophonePermission = micGranted
+        }
         
-        // For accessibility, we trust appState which is updated by the app delegate
-        // based on whether the hotkey service is actually working
-        // Just trigger a re-check by calling AXIsProcessTrusted
+        // Check accessibility
         let axTrusted = AXIsProcessTrusted()
         if axTrusted && !appState.hasAccessibilityPermission {
             appState.hasAccessibilityPermission = true
