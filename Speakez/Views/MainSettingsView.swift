@@ -715,8 +715,6 @@ struct AudioSection: View {
 
 struct PermissionsSection: View {
     @ObservedObject var appState: AppState
-    @State private var hasMicrophonePermission = false
-    @State private var hasAccessibilityPermission = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
@@ -725,7 +723,7 @@ struct PermissionsSection: View {
                     SettingsPermissionRow(
                         title: "Microphone",
                         description: "Capture your voice for transcription",
-                        isGranted: hasMicrophonePermission,
+                        isGranted: appState.hasMicrophonePermission,
                         onGrant: requestMicrophone
                     )
                     
@@ -734,25 +732,45 @@ struct PermissionsSection: View {
                     SettingsPermissionRow(
                         title: "Accessibility",
                         description: "Detect hotkey and insert text",
-                        isGranted: hasAccessibilityPermission,
+                        isGranted: appState.hasAccessibilityPermission,
                         onGrant: requestAccessibility
                     )
                 }
                 .overlay(Rectangle().stroke(Theme.Colors.border, lineWidth: 1))
             }
             
+            if appState.hasMicrophonePermission && appState.hasAccessibilityPermission {
+                SettingsGroup(title: "STATUS") {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Rectangle()
+                            .fill(Theme.Colors.sharpGreen)
+                            .frame(width: 8, height: 8)
+                        Text("All permissions granted — Speakez is ready to use")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Theme.Colors.sharpGreen)
+                    }
+                }
+            }
+            
             SettingsGroup(title: "HELP") {
                 VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    Text("If permissions aren't working, try removing and re-adding Speakez in System Settings.")
+                    Text("If permissions aren't working, try removing and re-adding Speakez in System Settings, then restart the app.")
                         .font(.system(size: 12))
                         .foregroundColor(Theme.Colors.textSecondary)
                     
-                    Button("Open System Settings") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
-                            NSWorkspace.shared.open(url)
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Button("Open System Settings") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
+                                NSWorkspace.shared.open(url)
+                            }
                         }
+                        .buttonStyle(.sharpSecondary)
+                        
+                        Button("Refresh Status") {
+                            checkPermissions()
+                        }
+                        .buttonStyle(.sharpGhost)
                     }
-                    .buttonStyle(.sharpSecondary)
                 }
             }
             
@@ -762,16 +780,22 @@ struct PermissionsSection: View {
     }
     
     private func checkPermissions() {
-        hasMicrophonePermission = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        hasAccessibilityPermission = AXIsProcessTrusted()
-        appState.hasMicrophonePermission = hasMicrophonePermission
-        appState.hasAccessibilityPermission = hasAccessibilityPermission
+        // Check microphone
+        let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        appState.hasMicrophonePermission = micGranted
+        
+        // For accessibility, we trust appState which is updated by the app delegate
+        // based on whether the hotkey service is actually working
+        // Just trigger a re-check by calling AXIsProcessTrusted
+        let axTrusted = AXIsProcessTrusted()
+        if axTrusted && !appState.hasAccessibilityPermission {
+            appState.hasAccessibilityPermission = true
+        }
     }
     
     private func requestMicrophone() {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             DispatchQueue.main.async {
-                hasMicrophonePermission = granted
                 appState.hasMicrophonePermission = granted
             }
         }

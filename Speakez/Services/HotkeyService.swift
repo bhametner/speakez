@@ -12,6 +12,11 @@ class HotkeyService {
     private let stateLock = NSLock()
     private var isKeyDown = false
     private var settings = AppSettings.shared
+    
+    /// Returns true if the hotkey service is actively listening
+    var isActive: Bool {
+        return eventTap != nil
+    }
 
     // Callbacks
     private let onKeyDown: () -> Void

@@ -159,14 +159,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func checkAccessibilityPermissionChange() {
         let trusted = AXIsProcessTrusted()
+        let hotkeyActive = hotkeyService?.isActive ?? false
+        
+        // Trust the hotkey service status over AXIsProcessTrusted
+        // because AXIsProcessTrusted can return stale data
+        let effectivelyTrusted = trusted || hotkeyActive
         let currentState = appState.hasAccessibilityPermission
 
-        if !trusted && currentState {
+        if !effectivelyTrusted && currentState {
             appState.hasAccessibilityPermission = false
             hotkeyService?.stop()
-        } else if trusted && !currentState {
+        } else if effectivelyTrusted && !currentState {
             appState.hasAccessibilityPermission = true
-            hotkeyService?.start()
+            if !hotkeyActive {
+                hotkeyService?.start()
+            }
         }
     }
 
@@ -184,7 +191,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             appState.hasMicrophonePermission = false
         }
 
-        appState.hasAccessibilityPermission = AXIsProcessTrusted()
+        // Check accessibility - trust hotkey service status if available
+        let axTrusted = AXIsProcessTrusted()
+        let hotkeyActive = hotkeyService?.isActive ?? false
+        appState.hasAccessibilityPermission = axTrusted || hotkeyActive
     }
 
     // MARK: - Recording Flow
