@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 
 /// First-time setup wizard for permissions and model download
+/// Uses Sharp Geometric design system
 struct SetupWizardView: View {
     @ObservedObject var appState: AppState
     var onComplete: (() -> Void)?
@@ -20,11 +21,11 @@ struct SetupWizardView: View {
         VStack(spacing: 0) {
             // Progress indicator
             progressHeader
-
-            Divider()
+            
+            Rectangle().fill(Theme.Colors.border).frame(height: 1)
 
             // Content
-            VStack(spacing: 20) {
+            VStack(spacing: Theme.Spacing.lg) {
                 switch currentStep {
                 case 0:
                     welcomeStep
@@ -38,15 +39,17 @@ struct SetupWizardView: View {
                     completionStep
                 }
             }
-            .padding(30)
+            .padding(Theme.Spacing.xxl)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.Colors.background)
 
-            Divider()
+            Rectangle().fill(Theme.Colors.border).frame(height: 1)
 
             // Navigation
             navigationFooter
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 520, height: 440)
+        .background(Theme.Colors.background)
         .onAppear {
             checkPermissions()
             checkModelStatus()
@@ -56,49 +59,72 @@ struct SetupWizardView: View {
     // MARK: - Progress Header
 
     private var progressHeader: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
             ForEach(0..<totalSteps, id: \.self) { step in
-                Circle()
-                    .fill(step <= currentStep ? Color.accentColor : Color.secondary.opacity(0.3))
-                    .frame(width: 10, height: 10)
+                // Step indicator
+                ZStack {
+                    Rectangle()
+                        .fill(step <= currentStep ? Theme.Colors.sharpGreen : Theme.Colors.border)
+                        .frame(width: 32, height: 32)
+                    
+                    if step < currentStep {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white)
+                    } else {
+                        Text("\(step + 1)")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(step == currentStep ? .white : Theme.Colors.textSecondary)
+                    }
+                }
 
                 if step < totalSteps - 1 {
                     Rectangle()
-                        .fill(step < currentStep ? Color.accentColor : Color.secondary.opacity(0.3))
+                        .fill(step < currentStep ? Theme.Colors.sharpGreen : Theme.Colors.border)
                         .frame(height: 2)
-                        .frame(maxWidth: 40)
+                        .frame(maxWidth: 60)
                 }
             }
         }
-        .padding()
+        .padding(Theme.Spacing.lg)
+        .background(Theme.Colors.secondaryBackground)
     }
 
     // MARK: - Welcome Step
 
     private var welcomeStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "mic.circle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.accentColor)
+        VStack(spacing: Theme.Spacing.lg) {
+            // Icon
+            ZStack {
+                Rectangle()
+                    .fill(Theme.Colors.sharpGreen)
+                    .frame(width: 80, height: 80)
+                
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundColor(.white)
+            }
 
-            Text("Welcome to Speakez")
-                .font(.title)
-                .fontWeight(.semibold)
+            VStack(spacing: Theme.Spacing.sm) {
+                Text("Welcome to Speakez")
+                    .font(.system(size: 28, weight: .heavy))
+                    .foregroundColor(Theme.Colors.textPrimary)
 
-            Text("This app lets you dictate text anywhere on your Mac by holding a hotkey.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                Text("Voice-to-text that runs entirely on your device.")
+                    .font(.system(size: 15))
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
 
             Spacer()
 
-            VStack(alignment: .leading, spacing: 8) {
-                FeatureRow(icon: "keyboard", text: "Hold Option (⌥) to start recording")
-                FeatureRow(icon: "waveform", text: "Speak your text")
-                FeatureRow(icon: "text.cursor", text: "Release to insert at cursor")
+            VStack(alignment: .leading, spacing: 0) {
+                WizardFeatureRow(number: "1", text: "Hold Option (⌥) to start recording")
+                Rectangle().fill(Theme.Colors.border).frame(height: 1)
+                WizardFeatureRow(number: "2", text: "Speak your text")
+                Rectangle().fill(Theme.Colors.border).frame(height: 1)
+                WizardFeatureRow(number: "3", text: "Release to insert at cursor")
             }
-            .padding()
-            .background(Color.secondary.opacity(0.1))
-            .cornerRadius(10)
+            .overlay(Rectangle().stroke(Theme.Colors.border, lineWidth: 1))
 
             Spacer()
         }
@@ -107,79 +133,117 @@ struct SetupWizardView: View {
     // MARK: - Microphone Step
 
     private var microphoneStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: hasMicrophonePermission ? "mic.circle.fill" : "mic.slash.circle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(hasMicrophonePermission ? .green : .orange)
+        VStack(spacing: Theme.Spacing.lg) {
+            ZStack {
+                Rectangle()
+                    .fill(hasMicrophonePermission ? Theme.Colors.sharpGreen : Theme.Colors.warning)
+                    .frame(width: 80, height: 80)
+                
+                Image(systemName: hasMicrophonePermission ? "mic.fill" : "mic.slash.fill")
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundColor(.white)
+            }
 
-            Text("Microphone Access")
-                .font(.title)
-                .fontWeight(.semibold)
+            VStack(spacing: Theme.Spacing.sm) {
+                Text("Microphone Access")
+                    .font(.system(size: 28, weight: .heavy))
+                    .foregroundColor(Theme.Colors.textPrimary)
 
-            Text("Speakez needs microphone access to hear your voice and transcribe it to text.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-
-            Spacer()
-
-            if hasMicrophonePermission {
-                Label("Microphone access granted", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-            } else {
-                Button("Grant Microphone Access") {
-                    requestMicrophonePermission()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                Text("Speakez needs to hear your voice to transcribe it.")
+                    .font(.system(size: 15))
+                    .foregroundColor(Theme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
             }
 
             Spacer()
 
-            Text("Your audio is processed locally on your device and never sent to any server.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            if hasMicrophonePermission {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Rectangle()
+                        .fill(Theme.Colors.sharpGreen)
+                        .frame(width: 8, height: 8)
+                    Text("Microphone access granted")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.Colors.sharpGreen)
+                }
+                .padding(Theme.Spacing.md)
+                .background(Theme.Colors.lightGreen)
+            } else {
+                Button("Grant Microphone Access") {
+                    requestMicrophonePermission()
+                }
+                .buttonStyle(.sharpPrimary)
+            }
+
+            Spacer()
+
+            HStack {
+                Rectangle()
+                    .fill(Theme.Colors.sharpGreen)
+                    .frame(width: 4)
+                Text("Your audio is processed locally and never sent to any server.")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
+            .padding(Theme.Spacing.md)
+            .background(Theme.Colors.secondaryBackground)
         }
     }
 
     // MARK: - Accessibility Step
 
     private var accessibilityStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: hasAccessibilityPermission ? "lock.open.fill" : "lock.fill")
-                .font(.system(size: 60))
-                .foregroundColor(hasAccessibilityPermission ? .green : .orange)
+        VStack(spacing: Theme.Spacing.lg) {
+            ZStack {
+                Rectangle()
+                    .fill(hasAccessibilityPermission ? Theme.Colors.sharpGreen : Theme.Colors.warning)
+                    .frame(width: 80, height: 80)
+                
+                Image(systemName: hasAccessibilityPermission ? "lock.open.fill" : "lock.fill")
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundColor(.white)
+            }
 
-            Text("Accessibility Access")
-                .font(.title)
-                .fontWeight(.semibold)
+            VStack(spacing: Theme.Spacing.sm) {
+                Text("Accessibility Access")
+                    .font(.system(size: 28, weight: .heavy))
+                    .foregroundColor(Theme.Colors.textPrimary)
 
-            Text("Speakez needs accessibility access to detect the hotkey and insert text in other applications.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                Text("Required to detect hotkey and insert text in other apps.")
+                    .font(.system(size: 15))
+                    .foregroundColor(Theme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
 
             Spacer()
 
             if hasAccessibilityPermission {
-                Label("Accessibility access granted", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green)
+                HStack(spacing: Theme.Spacing.sm) {
+                    Rectangle()
+                        .fill(Theme.Colors.sharpGreen)
+                        .frame(width: 8, height: 8)
+                    Text("Accessibility access granted")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.Colors.sharpGreen)
+                }
+                .padding(Theme.Spacing.md)
+                .background(Theme.Colors.lightGreen)
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: Theme.Spacing.md) {
                     Button("Open Accessibility Settings") {
                         openAccessibilitySettings()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .buttonStyle(.sharpPrimary)
 
-                    Text("Add Speakez to the list in System Settings > Privacy & Security > Accessibility")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Text("Add Speakez in System Settings → Privacy & Security → Accessibility")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.Colors.textSecondary)
                         .multilineTextAlignment(.center)
 
                     Button("Check Again") {
                         checkPermissions()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.sharpSecondary)
                 }
             }
 
@@ -190,49 +254,73 @@ struct SetupWizardView: View {
     // MARK: - Model Step
 
     private var modelStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: isModelReady ? "cpu.fill" : "arrow.down.circle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(isModelReady ? .green : .accentColor)
+        VStack(spacing: Theme.Spacing.lg) {
+            ZStack {
+                Rectangle()
+                    .fill(isModelReady ? Theme.Colors.sharpGreen : Theme.Colors.processing)
+                    .frame(width: 80, height: 80)
+                
+                Image(systemName: isModelReady ? "cpu.fill" : "arrow.down")
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundColor(.white)
+            }
 
-            Text("Download Speech Model")
-                .font(.title)
-                .fontWeight(.semibold)
+            VStack(spacing: Theme.Spacing.sm) {
+                Text("Download AI Model")
+                    .font(.system(size: 28, weight: .heavy))
+                    .foregroundColor(Theme.Colors.textPrimary)
 
-            Text("Speakez uses a local AI model to transcribe your speech. This model runs entirely on your device.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                Text("A local AI model powers the speech recognition.")
+                    .font(.system(size: 15))
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
 
             Spacer()
 
             if isModelReady {
-                Label("Model ready", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green)
+                HStack(spacing: Theme.Spacing.sm) {
+                    Rectangle()
+                        .fill(Theme.Colors.sharpGreen)
+                        .frame(width: 8, height: 8)
+                    Text("Model ready")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.Colors.sharpGreen)
+                }
+                .padding(Theme.Spacing.md)
+                .background(Theme.Colors.lightGreen)
             } else if isDownloadingModel {
-                VStack(spacing: 8) {
-                    ProgressView(value: downloadProgress)
-                        .frame(width: 200)
+                VStack(spacing: Theme.Spacing.sm) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Theme.Colors.secondaryBackground)
+                            Rectangle()
+                                .fill(Theme.Colors.sharpGreen)
+                                .frame(width: geo.size.width * downloadProgress)
+                        }
+                    }
+                    .frame(width: 240, height: 8)
+                    
                     Text("Downloading... \(Int(downloadProgress * 100))%")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Theme.Colors.sharpGreen)
                 }
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: Theme.Spacing.md) {
                     if let error = downloadError {
                         Text(error)
-                            .foregroundColor(.red)
-                            .font(.caption)
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.error)
                     }
 
                     Button("Download tiny.en Model (~39MB)") {
                         downloadModel()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .buttonStyle(.sharpPrimary)
 
-                    Text("Recommended for Intel Macs - fast and accurate")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Text("Recommended for fast, accurate transcription")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.Colors.textSecondary)
                 }
             }
 
@@ -243,31 +331,37 @@ struct SetupWizardView: View {
     // MARK: - Completion Step
 
     private var completionStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.green)
+        VStack(spacing: Theme.Spacing.lg) {
+            ZStack {
+                Rectangle()
+                    .fill(Theme.Colors.sharpGreen)
+                    .frame(width: 80, height: 80)
+                
+                Image(systemName: "checkmark")
+                    .font(.system(size: 36, weight: .bold))
+                    .foregroundColor(.white)
+            }
 
-            Text("Setup Complete!")
-                .font(.title)
-                .fontWeight(.semibold)
+            VStack(spacing: Theme.Spacing.sm) {
+                Text("You're All Set!")
+                    .font(.system(size: 28, weight: .heavy))
+                    .foregroundColor(Theme.Colors.textPrimary)
 
-            Text("You're ready to use Speakez. Hold the Option key and start speaking!")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                Text("Hold Option and start speaking.")
+                    .font(.system(size: 15))
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
 
             Spacer()
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Quick Tips:")
-                    .fontWeight(.medium)
-                FeatureRow(icon: "option", text: "Hold Option (⌥) to record")
-                FeatureRow(icon: "hand.raised", text: "Release to transcribe and insert")
-                FeatureRow(icon: "gearshape", text: "Click menu bar icon for settings")
+            VStack(alignment: .leading, spacing: 0) {
+                WizardTipRow(icon: "option", text: "Hold Option (⌥) to record")
+                Rectangle().fill(Theme.Colors.border).frame(height: 1)
+                WizardTipRow(icon: "escape", text: "Press Escape to cancel")
+                Rectangle().fill(Theme.Colors.border).frame(height: 1)
+                WizardTipRow(icon: "gearshape", text: "Click menu bar icon for settings")
             }
-            .padding()
-            .background(Color.secondary.opacity(0.1))
-            .cornerRadius(10)
+            .overlay(Rectangle().stroke(Theme.Colors.border, lineWidth: 1))
 
             Spacer()
         }
@@ -279,30 +373,31 @@ struct SetupWizardView: View {
         HStack {
             if currentStep > 0 {
                 Button("Back") {
-                    withAnimation {
+                    withAnimation(Theme.animation) {
                         currentStep -= 1
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.sharpSecondary)
             }
 
             Spacer()
 
             if currentStep < totalSteps - 1 {
                 Button(canProceed ? "Next" : "Skip") {
-                    withAnimation {
+                    withAnimation(Theme.animation) {
                         currentStep += 1
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.sharpPrimary)
             } else {
                 Button("Get Started") {
                     completeSetup()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.sharpPrimary)
             }
         }
-        .padding()
+        .padding(Theme.Spacing.lg)
+        .background(Theme.Colors.secondaryBackground)
     }
 
     // MARK: - Helpers
@@ -321,7 +416,6 @@ struct SetupWizardView: View {
     }
 
     private func checkPermissions() {
-        // Check microphone
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             hasMicrophonePermission = true
@@ -329,10 +423,8 @@ struct SetupWizardView: View {
             hasMicrophonePermission = false
         }
 
-        // Check accessibility
         hasAccessibilityPermission = AXIsProcessTrusted()
 
-        // Update app state
         appState.hasMicrophonePermission = hasMicrophonePermission
         appState.hasAccessibilityPermission = hasAccessibilityPermission
     }
@@ -343,7 +435,6 @@ struct SetupWizardView: View {
             isModelReady = FileManager.default.fileExists(atPath: modelPath)
         }
 
-        // Also check bundled model
         if Bundle.main.path(forResource: "ggml-tiny.en", ofType: "bin") != nil {
             isModelReady = true
         }
@@ -426,20 +517,54 @@ struct SetupWizardView: View {
     }
 }
 
-// MARK: - Feature Row
+// MARK: - Wizard Feature Row
 
-struct FeatureRow: View {
+struct WizardFeatureRow: View {
+    let number: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            ZStack {
+                Rectangle()
+                    .fill(Theme.Colors.sharpGreen)
+                    .frame(width: 28, height: 28)
+                
+                Text(number)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            
+            Text(text)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Theme.Colors.textPrimary)
+            
+            Spacer()
+        }
+        .padding(Theme.Spacing.md)
+    }
+}
+
+// MARK: - Wizard Tip Row
+
+struct WizardTipRow: View {
     let icon: String
     let text: String
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.Spacing.md) {
             Image(systemName: icon)
-                .foregroundColor(.accentColor)
-                .frame(width: 20)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Theme.Colors.sharpGreen)
+                .frame(width: 28)
+            
             Text(text)
-                .font(.subheadline)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Theme.Colors.textPrimary)
+            
+            Spacer()
         }
+        .padding(Theme.Spacing.md)
     }
 }
 

@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AppKit
 
 @main
 struct SpeakezApp: App {
@@ -10,6 +11,12 @@ struct SpeakezApp: App {
             PreferencesView()
                 .environmentObject(appDelegate.appState)
         }
+        
+        Window("History", id: "history") {
+            HistoryView(historyManager: appDelegate.historyManager)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 480, height: 520)
     }
 }
 
@@ -30,6 +37,7 @@ class AppState: ObservableObject {
     @Published var lastTranscription: String = ""
     @Published var showingPreferences: Bool = false
     @Published var showingSetupWizard: Bool = false
+    @Published var showingHistory: Bool = false
 
     let settings = AppSettings.shared
 }
@@ -40,18 +48,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover?
     var appState = AppState()
     var setupWizardWindow: NSWindow?
+    var historyWindow: NSWindow?
 
     // Recording indicator
     var recordingIndicator: RecordingIndicatorWindow?
+    var successIndicator: SuccessIndicatorWindow?
 
     // Services
     var hotkeyService: HotkeyService?
     var audioCaptureService: AudioCaptureService?
     var transcriptionService: TranscriptionService?
     var textInsertionService: TextInsertionService?
+    var soundService: SoundService?
+    
+    // History
+    let historyManager = TranscriptionHistoryManager()
 
     // Accessibility permission monitoring
     private var accessibilityCheckTimer: Timer?
+    
+    // Track recording start time for duration
+    private var recordingStartTime: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -91,7 +108,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenu() {
         let menu = NSMenu()
 
-        menu.addItem(NSMenuItem(title: "Speakez", action: nil, keyEquivalent: ""))
+        // Header
+        let headerItem = NSMenuItem(title: "Speakez", action: nil, keyEquivalent: "")
+        headerItem.isEnabled = false
+        menu.addItem(headerItem)
+        
         menu.addItem(NSMenuItem.separator())
 
         let statusMenuItem = NSMenuItem(title: "Status: Ready", action: nil, keyEquivalent: "")
@@ -99,18 +120,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusMenuItem)
 
         menu.addItem(NSMenuItem.separator())
-
+        
+        menu.addItem(NSMenuItem(title: "History...", action: #selector(showHistory), keyEquivalent: "h"))
         menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Setup Wizard...", action: #selector(showSetupWizard), keyEquivalent: ""))
 
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Speakez", action: #selector(quitApp), keyEquivalent: "q"))
 
         statusItem?.menu = menu
     }
 
     private func setupServices() {
+        // Initialize sound service
+        soundService = SoundService()
+        
         // Initialize text insertion service
         textInsertionService = TextInsertionService()
 
@@ -120,22 +145,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize audio capture service
         audioCaptureService = AudioCaptureService()
 
-        // Initialize hotkey service
+        // Initialize hotkey service with escape handling
         hotkeyService = HotkeyService(
             onKeyDown: { [weak self] in
                 self?.startRecording()
             },
             onKeyUp: { [weak self] in
                 self?.stopRecordingAndTranscribe()
+            },
+            onEscape: { [weak self] in
+                self?.cancelRecording()
             }
         )
         hotkeyService?.start()
 
-        // Fix 5: Set up periodic accessibility permission check
-        // Timer fires on main run loop, so we're already on main thread
+        // Periodic accessibility permission check
         accessibilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.checkAccessibilityPermissionChange()
+            self?.checkAccessibilityPermissionChange()
         }
     }
 
@@ -144,20 +170,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let currentState = appState.hasAccessibilityPermission
 
         if !trusted && currentState {
-            // Permission was revoked
             appState.hasAccessibilityPermission = false
             hotkeyService?.stop()
-            NSLog("AppDelegate: Accessibility permission revoked")
         } else if trusted && !currentState {
-            // Permission was granted
             appState.hasAccessibilityPermission = true
             hotkeyService?.start()
-            NSLog("AppDelegate: Accessibility permission restored")
         }
     }
 
     private func checkPermissions() {
-        // Check microphone permission
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             appState.hasMicrophonePermission = true
@@ -171,67 +192,77 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             appState.hasMicrophonePermission = false
         }
 
-        // Check accessibility permission
         appState.hasAccessibilityPermission = AXIsProcessTrusted()
     }
 
     // MARK: - Recording Flow
 
     private func startRecording() {
-        NSLog("AppDelegate: startRecording called")
-
-        // Fix 2: Guard against double-start
-        guard case .idle = appState.recordingState else {
-            NSLog("AppDelegate: Already recording or processing, ignoring")
-            return
-        }
-
-        NSLog("AppDelegate: hasMicrophonePermission = %@", appState.hasMicrophonePermission ? "YES" : "NO")
-
+        guard case .idle = appState.recordingState else { return }
         guard appState.hasMicrophonePermission else {
-            NSLog("AppDelegate: No microphone permission!")
             appState.recordingState = .error("Microphone permission required")
             updateStatusIcon(for: appState.recordingState)
             return
         }
 
-        NSLog("AppDelegate: Starting recording...")
+        // Play start sound
+        if appState.settings.playSounds {
+            soundService?.playStartSound()
+        }
 
         // Set up audio level callback
         audioCaptureService?.onAudioLevel = { [weak self] level in
             self?.recordingIndicator?.updateAudioLevel(level)
         }
 
-        // Fix 3: Start capture first, only update state if successful
         do {
             try audioCaptureService?.startCapture()
+            recordingStartTime = Date()
         } catch {
-            NSLog("AppDelegate: Failed to start audio capture - %@", String(describing: error))
             appState.recordingState = .error("Failed to start audio capture")
             updateStatusIcon(for: appState.recordingState)
             return
         }
 
-        NSLog("AppDelegate: Audio capture started")
-
-        // Only update to recording state after capture successfully started
         DispatchQueue.main.async {
             self.appState.recordingState = .recording
             self.updateStatusIcon(for: .recording)
             self.updateStatusText("Recording...")
 
-            // Show recording indicator
-            NSLog("AppDelegate: Showing recording indicator")
             self.recordingIndicator = RecordingIndicatorWindow()
             self.recordingIndicator?.show()
         }
     }
+    
+    private func cancelRecording() {
+        guard case .recording = appState.recordingState else { return }
+        
+        // Stop capture without transcribing
+        _ = audioCaptureService?.stopCapture()
+        audioCaptureService?.onAudioLevel = nil
+        
+        DispatchQueue.main.async {
+            self.recordingIndicator?.hide()
+            self.recordingIndicator = nil
+            
+            self.appState.recordingState = .idle
+            self.updateStatusIcon(for: .idle)
+            self.updateStatusText("Cancelled")
+            
+            // Play cancel sound
+            if self.appState.settings.playSounds {
+                self.soundService?.playCancelSound()
+            }
+            
+            // Reset status text after delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.updateStatusText("Ready")
+            }
+        }
+    }
 
     private func stopRecordingAndTranscribe() {
-        NSLog("AppDelegate: stopRecordingAndTranscribe called, state = %@", String(describing: appState.recordingState))
         guard case .recording = appState.recordingState else {
-            NSLog("AppDelegate: Not in recording state, skipping")
-            // Still try to hide indicator in case it's visible
             DispatchQueue.main.async {
                 self.recordingIndicator?.hide()
                 self.recordingIndicator = nil
@@ -239,8 +270,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        NSLog("AppDelegate: Hiding recording indicator")
-        // Hide recording indicator on main thread
+        // Calculate duration
+        let duration = recordingStartTime.map { Date().timeIntervalSince($0) }
+        recordingStartTime = nil
+
         DispatchQueue.main.async {
             self.recordingIndicator?.hide()
             self.recordingIndicator = nil
@@ -284,12 +317,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.appState.recordingState = .success
                     self.updateStatusIcon(for: .success)
                     self.updateStatusText("Success!")
+                    
+                    // Add to history
+                    self.historyManager.add(text: text, duration: duration)
 
-                    // Insert text at cursor
-                    self.textInsertionService?.insertText(text)
+                    // Insert or copy text based on mode
+                    if self.appState.settings.clipboardOnlyMode {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    } else {
+                        self.textInsertionService?.insertText(text)
+                    }
+                    
+                    // Play success sound
+                    if self.appState.settings.playSounds {
+                        self.soundService?.playSuccessSound()
+                    }
+                    
+                    // Show success indicator
+                    self.successIndicator = SuccessIndicatorWindow()
+                    self.successIndicator?.show()
 
-                    // Reset to idle after brief delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    // Reset to idle after delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         self.appState.recordingState = .idle
                         self.updateStatusIcon(for: .idle)
                         self.updateStatusText("Ready")
@@ -298,8 +348,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.appState.recordingState = .error("Transcription failed")
                     self.updateStatusIcon(for: .error(""))
                     self.updateStatusText("Error: Could not transcribe")
+                    
+                    // Play error sound
+                    if self.appState.settings.playSounds {
+                        self.soundService?.playErrorSound()
+                    }
 
-                    // Reset to idle after delay
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         self.appState.recordingState = .idle
                         self.updateStatusIcon(for: .idle)
@@ -324,16 +378,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             color = .secondaryLabelColor
         case .recording:
             symbolName = "mic.fill"
-            color = .systemRed
+            color = Theme.Colors.NS.recording
         case .processing:
             symbolName = "ellipsis.circle"
-            color = .systemBlue
+            color = NSColor(hex: "3B82F6")
         case .success:
             symbolName = "checkmark.circle.fill"
-            color = .systemGreen
+            color = Theme.Colors.NS.sharpGreen
         case .error:
             symbolName = "exclamationmark.triangle.fill"
-            color = .systemYellow
+            color = NSColor(hex: "F59E0B")
         }
 
         if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Speakez") {
@@ -361,10 +415,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+    
+    @objc func showHistory() {
+        if historyWindow == nil {
+            historyWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            historyWindow?.title = "Transcription History"
+            historyWindow?.center()
+            historyWindow?.contentView = NSHostingView(rootView: HistoryView(historyManager: historyManager))
+        }
+        historyWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     @objc func showSetupWizard() {
         setupWizardWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 440),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -381,5 +451,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+}
+
+// MARK: - Sound Service
+
+class SoundService {
+    private let startSound: NSSound?
+    private let successSound: NSSound?
+    private let errorSound: NSSound?
+    private let cancelSound: NSSound?
+    
+    init() {
+        // Use system sounds
+        startSound = NSSound(named: "Tink")
+        successSound = NSSound(named: "Glass")
+        errorSound = NSSound(named: "Basso")
+        cancelSound = NSSound(named: "Pop")
+    }
+    
+    func playStartSound() {
+        startSound?.play()
+    }
+    
+    func playSuccessSound() {
+        successSound?.play()
+    }
+    
+    func playErrorSound() {
+        errorSound?.play()
+    }
+    
+    func playCancelSound() {
+        cancelSound?.play()
     }
 }

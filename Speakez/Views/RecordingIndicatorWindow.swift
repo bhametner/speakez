@@ -2,12 +2,14 @@ import SwiftUI
 import AppKit
 
 /// A small floating window that shows recording status and audio level
+/// Uses Sharp Geometric design system - no rounded corners
 class RecordingIndicatorWindow {
     private var window: NSWindow?
-    private var levelView: NSProgressIndicator?
+    private var levelView: NSView?
+    private var levelWidthConstraint: NSLayoutConstraint?
+    private var maxLevelWidth: CGFloat = 80
 
     func show() {
-        // Ensure we're on main thread
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
                 self?.show()
@@ -20,59 +22,87 @@ class RecordingIndicatorWindow {
     }
 
     private func createAndShowWindow() {
-        // Create a simple NSWindow (not NSPanel to avoid some issues)
+        let windowWidth: CGFloat = 200
+        let windowHeight: CGFloat = 48
+        
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 180, height: 50),
+            contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
 
         window.level = .floating
-        window.backgroundColor = NSColor.black.withAlphaComponent(0.85)
-        window.isOpaque = false
+        window.backgroundColor = Theme.Colors.NS.textPrimary
+        window.isOpaque = true
         window.hasShadow = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        // Round corners
+        // Sharp corners - no rounding
         window.contentView?.wantsLayer = true
-        window.contentView?.layer?.cornerRadius = 10
-        window.contentView?.layer?.masksToBounds = true
+        window.contentView?.layer?.cornerRadius = 0
 
         // Position at top center of screen
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.midX - 90
+            let x = screenFrame.midX - windowWidth / 2
             let y = screenFrame.maxY - 70
             window.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        // Create content using AppKit (simpler, less crash-prone)
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 180, height: 50))
+        // Create content
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = Theme.Colors.NS.textPrimary.cgColor
 
-        // Recording dot
-        let dot = NSView(frame: NSRect(x: 15, y: 19, width: 12, height: 12))
-        dot.wantsLayer = true
-        dot.layer?.backgroundColor = NSColor.red.cgColor
-        dot.layer?.cornerRadius = 6
-        contentView.addSubview(dot)
+        // Left accent bar (Sharp Green)
+        let accentBar = NSView(frame: NSRect(x: 0, y: 0, width: 4, height: windowHeight))
+        accentBar.wantsLayer = true
+        accentBar.layer?.backgroundColor = Theme.Colors.NS.recording.cgColor
+        contentView.addSubview(accentBar)
+        
+        // Recording indicator dot (pulsing)
+        let dotContainer = NSView(frame: NSRect(x: 16, y: (windowHeight - 12) / 2, width: 12, height: 12))
+        dotContainer.wantsLayer = true
+        dotContainer.layer?.backgroundColor = Theme.Colors.NS.recording.cgColor
+        contentView.addSubview(dotContainer)
+        
+        // Add pulse animation
+        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+        pulseAnimation.fromValue = 1.0
+        pulseAnimation.toValue = 0.4
+        pulseAnimation.duration = 0.6
+        pulseAnimation.autoreverses = true
+        pulseAnimation.repeatCount = .infinity
+        dotContainer.layer?.add(pulseAnimation, forKey: "pulse")
 
-        // Level indicator
-        let level = NSProgressIndicator(frame: NSRect(x: 35, y: 17, width: 60, height: 16))
-        level.style = .bar
-        level.isIndeterminate = false
-        level.minValue = 0
-        level.maxValue = 1
-        level.doubleValue = 0
-        contentView.addSubview(level)
-        self.levelView = level
+        // Level meter background
+        let levelBg = NSView(frame: NSRect(x: 36, y: (windowHeight - 8) / 2, width: maxLevelWidth, height: 8))
+        levelBg.wantsLayer = true
+        levelBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.2).cgColor
+        contentView.addSubview(levelBg)
+        
+        // Level meter fill
+        let levelFill = NSView(frame: NSRect(x: 36, y: (windowHeight - 8) / 2, width: 0, height: 8))
+        levelFill.wantsLayer = true
+        levelFill.layer?.backgroundColor = Theme.Colors.NS.sharpGreen.cgColor
+        contentView.addSubview(levelFill)
+        self.levelView = levelFill
 
         // Label
-        let label = NSTextField(labelWithString: "Recording...")
-        label.frame = NSRect(x: 100, y: 15, width: 75, height: 20)
+        let label = NSTextField(labelWithString: "RECORDING")
+        label.frame = NSRect(x: 124, y: (windowHeight - 16) / 2, width: 80, height: 16)
         label.textColor = .white
-        label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        label.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        label.alignment = .left
         contentView.addSubview(label)
+        
+        // Esc hint
+        let escHint = NSTextField(labelWithString: "Esc to cancel")
+        escHint.frame = NSRect(x: 36, y: 6, width: 100, height: 12)
+        escHint.textColor = NSColor.white.withAlphaComponent(0.5)
+        escHint.font = NSFont.systemFont(ofSize: 9, weight: .medium)
+        contentView.addSubview(escHint)
 
         window.contentView = contentView
         self.window = window
@@ -81,7 +111,6 @@ class RecordingIndicatorWindow {
     }
 
     func hide() {
-        // Ensure we're on main thread
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
                 self?.hide()
@@ -89,7 +118,6 @@ class RecordingIndicatorWindow {
             return
         }
 
-        NSLog("RecordingIndicatorWindow: Closing window")
         levelView = nil
         if let window = self.window {
             self.window = nil
@@ -99,7 +127,92 @@ class RecordingIndicatorWindow {
 
     func updateAudioLevel(_ level: Float) {
         DispatchQueue.main.async { [weak self] in
-            self?.levelView?.doubleValue = Double(level)
+            guard let self = self, let levelView = self.levelView else { return }
+            
+            let width = CGFloat(level) * self.maxLevelWidth
+            var frame = levelView.frame
+            frame.size.width = max(2, width) // minimum 2px
+            levelView.frame = frame
+        }
+    }
+}
+
+// MARK: - Success Indicator
+
+/// Brief success flash indicator
+class SuccessIndicatorWindow {
+    private var window: NSWindow?
+    
+    func show() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.show()
+            }
+            return
+        }
+        
+        let windowWidth: CGFloat = 160
+        let windowHeight: CGFloat = 48
+        
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        
+        window.level = .floating
+        window.backgroundColor = Theme.Colors.NS.sharpGreen
+        window.isOpaque = true
+        window.hasShadow = true
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.cornerRadius = 0
+        
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let x = screenFrame.midX - windowWidth / 2
+            let y = screenFrame.maxY - 70
+            window.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+        
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
+        
+        // Checkmark
+        let checkmark = NSTextField(labelWithString: "✓")
+        checkmark.frame = NSRect(x: 16, y: (windowHeight - 20) / 2, width: 24, height: 20)
+        checkmark.textColor = .white
+        checkmark.font = NSFont.systemFont(ofSize: 18, weight: .bold)
+        contentView.addSubview(checkmark)
+        
+        // Label
+        let label = NSTextField(labelWithString: "INSERTED")
+        label.frame = NSRect(x: 44, y: (windowHeight - 16) / 2, width: 100, height: 16)
+        label.textColor = .white
+        label.font = NSFont.systemFont(ofSize: 12, weight: .bold)
+        contentView.addSubview(label)
+        
+        window.contentView = contentView
+        self.window = window
+        window.orderFront(nil)
+        
+        // Auto-hide after 1 second
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.hide()
+        }
+    }
+    
+    func hide() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.hide()
+            }
+            return
+        }
+        
+        if let window = self.window {
+            self.window = nil
+            window.orderOut(nil)
         }
     }
 }

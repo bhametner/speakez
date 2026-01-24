@@ -1,69 +1,97 @@
 import SwiftUI
 
 /// Menu bar popover view showing app status and quick controls
+/// Uses Sharp Geometric design system
 struct MenuBarView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             // Header
-            HStack {
-                Text("Speakez")
-                    .font(.headline)
-                Spacer()
-                statusBadge
-            }
-
-            Divider()
+            headerSection
+            
+            Rectangle().fill(Theme.Colors.border).frame(height: 1)
 
             // Status
             statusSection
-
-            Divider()
+                .padding(Theme.Spacing.lg)
+            
+            Rectangle().fill(Theme.Colors.border).frame(height: 1)
 
             // Last transcription
             if !appState.lastTranscription.isEmpty {
                 lastTranscriptionSection
-                Divider()
+                    .padding(Theme.Spacing.lg)
+                
+                Rectangle().fill(Theme.Colors.border).frame(height: 1)
             }
 
-            // Quick info
-            infoSection
-
-            Divider()
+            // Permissions
+            permissionsSection
+                .padding(Theme.Spacing.lg)
+            
+            Rectangle().fill(Theme.Colors.border).frame(height: 1)
 
             // Actions
             actionsSection
+                .padding(Theme.Spacing.lg)
         }
-        .padding()
-        .frame(width: 280)
+        .frame(width: 300)
+        .background(Theme.Colors.background)
+    }
+
+    // MARK: - Header Section
+
+    private var headerSection: some View {
+        HStack {
+            // Logo mark
+            Text("S")
+                .font(.system(size: 14, weight: .heavy))
+                .foregroundColor(.white)
+                .frame(width: 28, height: 28)
+                .background(Theme.Colors.sharpGreen)
+            
+            Text("Speakez")
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundColor(Theme.Colors.textPrimary)
+            
+            Spacer()
+            
+            statusBadge
+        }
+        .padding(Theme.Spacing.lg)
+        .background(Theme.Colors.background)
     }
 
     // MARK: - Status Badge
 
     private var statusBadge: some View {
-        HStack(spacing: 4) {
-            Circle()
+        HStack(spacing: 6) {
+            Rectangle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
-            Text(statusText)
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Text(statusText.uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(Theme.Colors.textSecondary)
+                .tracking(1)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Theme.Colors.secondaryBackground)
     }
 
     private var statusColor: Color {
         switch appState.recordingState {
         case .idle:
-            return .green
+            return Theme.Colors.success
         case .recording:
-            return .red
+            return Theme.Colors.recording
         case .processing:
-            return .blue
+            return Theme.Colors.processing
         case .success:
-            return .green
+            return Theme.Colors.success
         case .error:
-            return .yellow
+            return Theme.Colors.warning
         }
     }
 
@@ -77,29 +105,36 @@ struct MenuBarView: View {
             return "Processing"
         case .success:
             return "Success"
-        case .error(let message):
-            return message
+        case .error:
+            return "Error"
         }
     }
 
     // MARK: - Status Section
 
     private var statusSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        HStack(spacing: Theme.Spacing.md) {
+            // Status icon
+            ZStack {
+                Rectangle()
+                    .fill(statusColor.opacity(0.15))
+                    .frame(width: 48, height: 48)
+                
                 Image(systemName: statusIcon)
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(statusColor)
-                    .font(.title2)
-
-                VStack(alignment: .leading) {
-                    Text(statusTitle)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    Text(statusSubtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(statusTitle)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(Theme.Colors.textPrimary)
+                Text(statusSubtitle)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
+            
+            Spacer()
         }
     }
 
@@ -110,11 +145,11 @@ struct MenuBarView: View {
         case .recording:
             return "mic.fill"
         case .processing:
-            return "ellipsis.circle"
+            return "ellipsis"
         case .success:
-            return "checkmark.circle.fill"
+            return "checkmark"
         case .error:
-            return "exclamationmark.triangle.fill"
+            return "exclamationmark"
         }
     }
 
@@ -139,7 +174,7 @@ struct MenuBarView: View {
         case .idle:
             return "Hold \(hotkeyName) to start"
         case .recording:
-            return "Release \(hotkeyName) to transcribe"
+            return "Release to transcribe • Esc to cancel"
         case .processing:
             return "Please wait..."
         case .success:
@@ -152,54 +187,114 @@ struct MenuBarView: View {
     // MARK: - Last Transcription Section
 
     private var lastTranscriptionSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Last Transcription")
-                .font(.caption)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            HStack {
+                Text("LAST TRANSCRIPTION")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(Theme.Colors.textSecondary)
+                    .tracking(1)
+                
+                Spacer()
+                
+                Button(action: {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(appState.lastTranscription, forType: .string)
+                }) {
+                    Text("COPY")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(Theme.Colors.sharpGreen)
+                        .tracking(1)
+                }
+                .buttonStyle(.plain)
+            }
 
             Text(appState.lastTranscription)
-                .font(.caption)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(Theme.Colors.textPrimary)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(6)
+                .padding(Theme.Spacing.sm)
+                .background(Theme.Colors.secondaryBackground)
         }
     }
 
-    // MARK: - Info Section
+    // MARK: - Permissions Section
 
-    private var infoSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            PermissionRow(
-                title: "Microphone",
-                isGranted: appState.hasMicrophonePermission
-            )
-            PermissionRow(
-                title: "Accessibility",
-                isGranted: appState.hasAccessibilityPermission
-            )
+    private var permissionsSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Text("PERMISSIONS")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(Theme.Colors.textSecondary)
+                .tracking(1)
+            
+            VStack(spacing: 6) {
+                PermissionRow(
+                    title: "Microphone",
+                    isGranted: appState.hasMicrophonePermission
+                )
+                PermissionRow(
+                    title: "Accessibility",
+                    isGranted: appState.hasAccessibilityPermission
+                )
+            }
         }
     }
 
     // MARK: - Actions Section
 
     private var actionsSection: some View {
-        VStack(spacing: 8) {
-            Button("Preferences...") {
+        VStack(spacing: Theme.Spacing.xs) {
+            Button(action: {
                 appState.showingPreferences = true
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                 NSApp.activate(ignoringOtherApps: true)
+            }) {
+                HStack {
+                    Image(systemName: "gearshape")
+                    Text("Preferences")
+                    Spacer()
+                    Text("⌘,")
+                        .foregroundColor(Theme.Colors.textSecondary)
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Theme.Colors.textPrimary)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            
+            Button(action: {
+                appState.showingHistory = true
+            }) {
+                HStack {
+                    Image(systemName: "clock.arrow.circlepath")
+                    Text("History")
+                    Spacer()
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Theme.Colors.textPrimary)
+                .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
 
-            Button("Quit Speakez") {
+            Rectangle().fill(Theme.Colors.border).frame(height: 1)
+                .padding(.vertical, 4)
+
+            Button(action: {
                 NSApp.terminate(nil)
+            }) {
+                HStack {
+                    Image(systemName: "power")
+                    Text("Quit Speakez")
+                    Spacer()
+                    Text("⌘Q")
+                        .foregroundColor(Theme.Colors.textSecondary)
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Theme.Colors.error)
+                .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
-            .foregroundColor(.red)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -211,60 +306,20 @@ struct PermissionRow: View {
 
     var body: some View {
         HStack {
-            Image(systemName: isGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundColor(isGranted ? .green : .red)
-                .font(.caption)
+            Rectangle()
+                .fill(isGranted ? Theme.Colors.success : Theme.Colors.error)
+                .frame(width: 6, height: 6)
 
             Text(title)
-                .font(.caption)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Theme.Colors.textPrimary)
 
             Spacer()
 
             Text(isGranted ? "Granted" : "Required")
-                .font(.caption2)
-                .foregroundColor(.secondary)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isGranted ? Theme.Colors.textSecondary : Theme.Colors.error)
         }
-    }
-}
-
-// MARK: - Recording Indicator Overlay
-
-struct RecordingIndicatorOverlay: View {
-    @ObservedObject var appState: AppState
-
-    var body: some View {
-        if case .recording = appState.recordingState {
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    recordingIndicator
-                        .padding()
-                }
-            }
-        }
-    }
-
-    private var recordingIndicator: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(Color.red)
-                .frame(width: 12, height: 12)
-                .overlay(
-                    Circle()
-                        .stroke(Color.red.opacity(0.5), lineWidth: 2)
-                        .scaleEffect(1.5)
-                )
-
-            Text("Recording...")
-                .font(.caption)
-                .fontWeight(.medium)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.black.opacity(0.8))
-        .foregroundColor(.white)
-        .cornerRadius(20)
     }
 }
 
@@ -273,7 +328,7 @@ struct RecordingIndicatorOverlay: View {
 #Preview {
     MenuBarView(appState: {
         let state = AppState()
-        state.lastTranscription = "Hello, this is a test transcription."
+        state.lastTranscription = "Hello, this is a test transcription that might be a bit longer."
         return state
     }())
 }

@@ -47,9 +47,9 @@ enum WhisperModel: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .tiny: return "Tiny (39MB) - Fastest"
-        case .base: return "Base (142MB) - Better accuracy"
-        case .small: return "Small (466MB) - Best accuracy"
+        case .tiny: return "Tiny (39MB) — Fastest"
+        case .base: return "Base (142MB) — Better accuracy"
+        case .small: return "Small (466MB) — Best accuracy"
         }
     }
 
@@ -90,6 +90,7 @@ class AppSettings: ObservableObject {
         static let autoStartOnLogin = "autoStartOnLogin"
         static let selectedAudioDevice = "selectedAudioDevice"
         static let transcriptionLanguage = "transcriptionLanguage"
+        static let clipboardOnlyMode = "clipboardOnlyMode"
     }
 
     // MARK: - Setup State
@@ -118,7 +119,7 @@ class AppSettings: ObservableObject {
         }
     }
 
-    // MARK: - Audio
+    // MARK: - Audio & Feedback
 
     @Published var playSounds: Bool {
         didSet {
@@ -129,6 +130,15 @@ class AppSettings: ObservableObject {
     @Published var selectedAudioDevice: String? {
         didSet {
             defaults.set(selectedAudioDevice, forKey: Keys.selectedAudioDevice)
+        }
+    }
+
+    // MARK: - Behavior
+    
+    /// When true, copy to clipboard but don't auto-paste
+    @Published var clipboardOnlyMode: Bool {
+        didSet {
+            defaults.set(clipboardOnlyMode, forKey: Keys.clipboardOnlyMode)
         }
     }
 
@@ -173,6 +183,7 @@ class AppSettings: ObservableObject {
         self.autoStartOnLogin = defaults.bool(forKey: Keys.autoStartOnLogin)
         self.selectedAudioDevice = defaults.string(forKey: Keys.selectedAudioDevice)
         self.transcriptionLanguage = defaults.string(forKey: Keys.transcriptionLanguage) ?? "en"
+        self.clipboardOnlyMode = defaults.bool(forKey: Keys.clipboardOnlyMode)
     }
 
     // MARK: - Model Management
@@ -216,7 +227,6 @@ class AppSettings: ObservableObject {
                 print("AppSettings: Failed to update login item: \(error.localizedDescription)")
             }
         } else {
-            // Fallback for older macOS versions
             print("AppSettings: Login items require macOS 13+")
         }
     }
@@ -227,7 +237,6 @@ class AppSettings: ObservableObject {
             let service = SMAppService.mainApp
             let isEnabled = service.status == .enabled
             if isEnabled != autoStartOnLogin {
-                // Sync the setting with actual status without triggering updateLoginItem
                 defaults.set(isEnabled, forKey: Keys.autoStartOnLogin)
                 DispatchQueue.main.async {
                     self.autoStartOnLogin = isEnabled
@@ -246,5 +255,6 @@ class AppSettings: ObservableObject {
         autoStartOnLogin = false
         selectedAudioDevice = nil
         transcriptionLanguage = "en"
+        clipboardOnlyMode = false
     }
 }

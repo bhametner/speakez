@@ -16,15 +16,19 @@ class HotkeyService {
     // Callbacks
     private let onKeyDown: () -> Void
     private let onKeyUp: () -> Void
+    private let onEscape: (() -> Void)?
 
     // Track modifier state to avoid key repeat
     private var lastModifierFlags: CGEventFlags = []
 
     // MARK: - Initialization
 
-    init(onKeyDown: @escaping () -> Void, onKeyUp: @escaping () -> Void) {
+    init(onKeyDown: @escaping () -> Void, 
+         onKeyUp: @escaping () -> Void,
+         onEscape: (() -> Void)? = nil) {
         self.onKeyDown = onKeyDown
         self.onKeyUp = onKeyUp
+        self.onEscape = onEscape
     }
 
     deinit {
@@ -38,18 +42,16 @@ class HotkeyService {
 
         // Check accessibility permission
         let trusted = AXIsProcessTrusted()
-        NSLog("HotkeyService: AXIsProcessTrusted = %@", trusted ? "YES" : "NO")
         guard trusted else {
-            NSLog("HotkeyService: No accessibility - cannot create event tap")
+            print("HotkeyService: No accessibility permission")
             return
         }
 
-        // Create event tap for modifier key events
+        // Create event tap for modifier key events and regular keys (for Escape)
         let eventMask = (1 << CGEventType.flagsChanged.rawValue) |
                         (1 << CGEventType.keyDown.rawValue) |
                         (1 << CGEventType.keyUp.rawValue)
 
-        // Create the event tap with a callback
         eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -64,30 +66,20 @@ class HotkeyService {
         )
 
         guard let eventTap = eventTap else {
-            NSLog("HotkeyService: FAILED to create event tap")
+            print("HotkeyService: Failed to create event tap")
             return
         }
-        NSLog("HotkeyService: Event tap created")
 
-        // Create run loop source
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         guard let runLoopSource = runLoopSource else {
-            NSLog("HotkeyService: FAILED to create run loop source")
+            print("HotkeyService: Failed to create run loop source")
             return
         }
-        NSLog("HotkeyService: Run loop source created")
 
-        // Add to the MAIN run loop (important for GUI apps)
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        NSLog("HotkeyService: Added to main run loop")
-
-        // Enable the event tap
         CGEvent.tapEnable(tap: eventTap, enable: true)
-
-        // Verify it's enabled
-        let isEnabled = CGEvent.tapIsEnabled(tap: eventTap)
-        NSLog("HotkeyService: Event tap enabled = %@", isEnabled ? "YES" : "NO")
-        NSLog("HotkeyService: Ready - hold Option key to record")
+        
+        print("HotkeyService: Ready - hold Option key to record, Escape to cancel")
     }
 
     func stop() {
@@ -109,21 +101,41 @@ class HotkeyService {
     }
 
     func updateHotkey(_ config: HotkeyConfig) {
-        // Hotkey config is read from settings on each event
-        // No need to restart the tap
         print("HotkeyService: Hotkey updated to \(config.displayName)")
     }
 
     // MARK: - Private Methods
 
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Handle tap disabled event - this can happen if callback takes too long
+        // Handle tap disabled event
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            NSLog("HotkeyService: Event tap was DISABLED - re-enabling")
             if let eventTap = eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
             return Unmanaged.passRetained(event)
+        }
+
+        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        
+        // Handle Escape key for canceling (keyDown event)
+        if type == .keyDown && keyCode == UInt16(kVK_Escape) {
+            stateLock.lock()
+            let wasDown = isKeyDown
+            stateLock.unlock()
+            
+            if wasDown {
+                // Cancel recording
+                DispatchQueue.main.async { [weak self] in
+                    self?.onEscape?()
+                }
+                // Reset key state
+                stateLock.lock()
+                isKeyDown = false
+                stateLock.unlock()
+                
+                // Don't consume the event, let it pass through
+                return Unmanaged.passRetained(event)
+            }
         }
 
         // Only handle flags changed events for modifier keys
@@ -131,12 +143,7 @@ class HotkeyService {
             return Unmanaged.passRetained(event)
         }
 
-        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
-
-        NSLog("HotkeyService: flagsChanged keyCode=%d", keyCode)
-
-        // Check if this is our configured hotkey
         let hotkeyConfig = settings.hotkeyConfig
 
         // Detect key down/up based on flag presence
@@ -146,7 +153,6 @@ class HotkeyService {
         if isTargetKey {
             let isNowDown = isModifierPressed(flags: flags, config: hotkeyConfig)
 
-            // Thread-safe check-and-set for key state
             stateLock.lock()
             let wasDown = isKeyDown
             var shouldCallKeyDown = false
@@ -161,17 +167,11 @@ class HotkeyService {
             }
             stateLock.unlock()
 
-            NSLog("HotkeyService: Target key! wasDown=%d isNowDown=%d", wasDown ? 1 : 0, isNowDown ? 1 : 0)
-
             if shouldCallKeyDown {
-                // Key pressed
-                NSLog("HotkeyService: KEY DOWN")
                 DispatchQueue.main.async { [weak self] in
                     self?.onKeyDown()
                 }
             } else if shouldCallKeyUp {
-                // Key released
-                NSLog("HotkeyService: KEY UP")
                 DispatchQueue.main.async { [weak self] in
                     self?.onKeyUp()
                 }
@@ -179,13 +179,10 @@ class HotkeyService {
         }
 
         lastModifierFlags = flags
-
-        // Pass the event through (don't block it)
         return Unmanaged.passRetained(event)
     }
 
     private func isModifierKeyMatch(keyCode: UInt16, config: HotkeyConfig) -> Bool {
-        // Map key codes to their modifier equivalents
         switch Int(keyCode) {
         case kVK_Option, kVK_RightOption:
             return config.keyCode == UInt16(kVK_Option) || config.keyCode == UInt16(kVK_RightOption)
@@ -213,20 +210,5 @@ class HotkeyService {
         default:
             return false
         }
-    }
-
-    private func promptForAccessibilityPermission() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        AXIsProcessTrustedWithOptions(options as CFDictionary)
-    }
-}
-
-// MARK: - Escape Key Handler
-
-extension HotkeyService {
-    /// Cancel current operation when Escape is pressed
-    func enableEscapeCancel(onCancel: @escaping () -> Void) {
-        // This would be implemented with an additional event tap for key events
-        // For MVP, we'll handle this in the main app delegate
     }
 }
