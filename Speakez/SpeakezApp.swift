@@ -68,12 +68,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         setupServices()
-        checkPermissions()
         
-        // Show main window if first launch or setup incomplete
-        if !appState.settings.hasCompletedSetup {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.showMainWindow()
+        // Delay permission check slightly to let hotkey service initialize
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.checkPermissions()
+            
+            // Show main window if first launch or setup incomplete
+            if !self.appState.settings.hasCompletedSetup {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.showMainWindow()
+                }
             }
         }
     }
@@ -151,8 +155,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         hotkeyService?.start()
 
-        // Periodic accessibility permission check
-        accessibilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        // Periodic accessibility permission check - also updates UI status
+        accessibilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkAccessibilityPermissionChange()
+        }
+        
+        // Initial check after a brief delay to let hotkey service initialize
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.checkAccessibilityPermissionChange()
         }
     }
@@ -194,6 +203,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check accessibility - trust hotkey service status if available
         let axTrusted = AXIsProcessTrusted()
         let hotkeyActive = hotkeyService?.isActive ?? false
+        NSLog("Permission check: AXIsProcessTrusted=\(axTrusted), hotkeyActive=\(hotkeyActive)")
         appState.hasAccessibilityPermission = axTrusted || hotkeyActive
     }
 

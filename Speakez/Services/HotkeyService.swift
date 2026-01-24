@@ -85,6 +85,7 @@ class HotkeyService {
         CGEvent.tapEnable(tap: eventTap, enable: true)
         
         print("HotkeyService: Ready - hold Option key to record, Escape to cancel")
+        print("HotkeyService: isActive = \(isActive)")
     }
 
     func stop() {
