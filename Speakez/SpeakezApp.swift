@@ -7,16 +7,13 @@ struct SpeakezApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        Settings {
-            PreferencesView()
-                .environmentObject(appDelegate.appState)
-        }
-        
-        Window("History", id: "history") {
-            HistoryView(historyManager: appDelegate.historyManager)
+        // Single unified settings window
+        Window("Speakez", id: "main") {
+            MainSettingsView(appState: appDelegate.appState)
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 480, height: 520)
+        .defaultSize(width: 750, height: 550)
+        .windowResizability(.contentSize)
     }
 }
 
@@ -45,10 +42,8 @@ class AppState: ObservableObject {
 // MARK: - App Delegate
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
-    var popover: NSPopover?
     var appState = AppState()
-    var setupWizardWindow: NSWindow?
-    var historyWindow: NSWindow?
+    var mainWindow: NSWindow?
 
     // Recording indicator
     var recordingIndicator: RecordingIndicatorWindow?
@@ -74,12 +69,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupServices()
         checkPermissions()
-
-        // Show setup wizard if first launch
+        
+        // Show main window if first launch or setup incomplete
         if !appState.settings.hasCompletedSetup {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.appState.showingSetupWizard = true
-                self.showSetupWizard()
+                self.showMainWindow()
             }
         }
     }
@@ -121,9 +115,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
         
-        menu.addItem(NSMenuItem(title: "History...", action: #selector(showHistory), keyEquivalent: "h"))
-        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "Setup Wizard...", action: #selector(showSetupWizard), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Speakez...", action: #selector(showMainWindow), keyEquivalent: "o"))
 
         menu.addItem(NSMenuItem.separator())
 
@@ -411,41 +403,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.button?.performClick(nil)
     }
 
-    @objc private func openPreferences() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-    
-    @objc func showHistory() {
-        if historyWindow == nil {
-            historyWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
-            historyWindow?.title = "Transcription History"
-            historyWindow?.center()
-            historyWindow?.contentView = NSHostingView(rootView: HistoryView(historyManager: historyManager))
+    @objc func showMainWindow() {
+        // Use SwiftUI window management
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            // Fallback: open via menu
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         }
-        historyWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @objc func showSetupWizard() {
-        setupWizardWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 440),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        setupWizardWindow?.title = "Speakez Setup"
-        setupWizardWindow?.center()
-        setupWizardWindow?.contentView = NSHostingView(rootView: SetupWizardView(appState: appState, onComplete: { [weak self] in
-            self?.setupWizardWindow?.close()
-            self?.setupWizardWindow = nil
-        }))
-        setupWizardWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
