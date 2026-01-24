@@ -1,0 +1,204 @@
+import Foundation
+
+/// Protocol for speech transcription backends
+protocol TranscriptionBackend {
+    func transcribe(audioData: [Float]) -> String?
+    var isModelLoaded: Bool { get }
+    func loadModel(at path: String) -> Bool
+}
+
+/// Service for transcribing audio to text using Whisper
+class TranscriptionService {
+    // MARK: - Properties
+
+    private var backend: TranscriptionBackend?
+    private let settings = AppSettings.shared
+    private var isInitialized = false
+
+    // Thread configuration for Intel CPU
+    // Use physical core count for optimal performance
+    private let threadCount: Int32 = 4
+
+    // MARK: - Initialization
+
+    init() {
+        initializeBackend()
+    }
+
+    // MARK: - Public Methods
+
+    /// Transcribe audio data to text
+    /// - Parameter audioData: Array of Float32 samples at 16kHz mono
+    /// - Returns: Transcribed text or nil on failure
+    func transcribe(audioData: [Float]) -> String? {
+        guard let backend = backend, backend.isModelLoaded else {
+            print("TranscriptionService: Model not loaded")
+            // Try to load the model if not already loaded
+            if !loadModelIfNeeded() {
+                return nil
+            }
+            // After loading, check again
+            guard let loadedBackend = self.backend, loadedBackend.isModelLoaded else {
+                return nil
+            }
+            return performTranscription(backend: loadedBackend, audioData: audioData)
+        }
+
+        return performTranscription(backend: backend, audioData: audioData)
+    }
+
+    private func performTranscription(backend: TranscriptionBackend, audioData: [Float]) -> String? {
+        let startTime = CFAbsoluteTimeGetCurrent()
+
+        let result = backend.transcribe(audioData: audioData)
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        let audioDuration = Double(audioData.count) / 16000.0
+        let ratio = audioDuration / elapsed
+
+        print("TranscriptionService: Transcribed \(String(format: "%.2f", audioDuration))s audio in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", ratio))x realtime)")
+
+        // Clean up the result
+        return result?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+    }
+
+    /// Check if the model is loaded and ready
+    var isReady: Bool {
+        return backend?.isModelLoaded ?? false
+    }
+
+    /// Reload the model (e.g., after changing model in settings)
+    func reloadModel() {
+        isInitialized = false
+        initializeBackend()
+    }
+
+    // MARK: - Private Methods
+
+    private func initializeBackend() {
+        guard !isInitialized else { return }
+
+        // Try to use the real Whisper backend
+        backend = WhisperBackend(threadCount: threadCount)
+
+        // Load the model
+        _ = loadModelIfNeeded()
+
+        isInitialized = true
+    }
+
+    private func loadModelIfNeeded() -> Bool {
+        guard let backend = backend, !backend.isModelLoaded else {
+            return backend?.isModelLoaded ?? false
+        }
+
+        // First try bundled model
+        if let bundledPath = Bundle.main.path(forResource: "ggml-tiny.en", ofType: "bin") {
+            print("TranscriptionService: Loading bundled model at \(bundledPath)")
+            return backend.loadModel(at: bundledPath)
+        }
+
+        // Then try Application Support directory
+        if let modelPath = settings.modelPath?.path, FileManager.default.fileExists(atPath: modelPath) {
+            print("TranscriptionService: Loading model at \(modelPath)")
+            return backend.loadModel(at: modelPath)
+        }
+
+        print("TranscriptionService: No model found. Please download a model.")
+        return false
+    }
+}
+
+// MARK: - Whisper Backend (whisper.cpp wrapper)
+
+/// Backend implementation using whisper.cpp
+class WhisperBackend: TranscriptionBackend {
+    private var whisperContext: OpaquePointer?
+    private let threadCount: Int32
+
+    init(threadCount: Int32 = 4) {
+        self.threadCount = threadCount
+    }
+
+    deinit {
+        if let context = whisperContext {
+            whisper_free(context)
+        }
+    }
+
+    var isModelLoaded: Bool {
+        return whisperContext != nil
+    }
+
+    func loadModel(at path: String) -> Bool {
+        // Free existing context
+        if let context = whisperContext {
+            whisper_free(context)
+            whisperContext = nil
+        }
+
+        // Initialize context parameters
+        var params = whisper_context_default_params()
+        params.use_gpu = false  // Intel Mac - no GPU acceleration
+
+        // Load the model
+        whisperContext = whisper_init_from_file_with_params(path, params)
+
+        if whisperContext != nil {
+            print("WhisperBackend: Model loaded successfully")
+            return true
+        } else {
+            print("WhisperBackend: Failed to load model at \(path)")
+            return false
+        }
+    }
+
+    func transcribe(audioData: [Float]) -> String? {
+        guard let context = whisperContext else {
+            print("WhisperBackend: No context available")
+            return nil
+        }
+
+        // Configure transcription parameters
+        var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+        params.print_realtime = false
+        params.print_progress = false
+        params.print_timestamps = false
+        params.print_special = false
+        params.translate = false
+        params.n_threads = threadCount
+        params.offset_ms = 0
+        params.no_context = true
+        params.single_segment = false
+        params.suppress_blank = true
+        params.suppress_nst = true
+
+        // Set language to English
+        let languageStr = "en"
+        let result = languageStr.withCString { langCStr in
+            params.language = langCStr
+
+            // Run inference
+            return audioData.withUnsafeBufferPointer { bufferPointer in
+                whisper_full(context, params, bufferPointer.baseAddress, Int32(audioData.count))
+            }
+        }
+
+        if result != 0 {
+            print("WhisperBackend: Transcription failed with code \(result)")
+            return nil
+        }
+
+        // Get the transcription result
+        let numSegments = whisper_full_n_segments(context)
+        var transcription = ""
+
+        for i in 0..<numSegments {
+            if let text = whisper_full_get_segment_text(context, i) {
+                transcription += String(cString: text)
+            }
+        }
+
+        return transcription
+    }
+}

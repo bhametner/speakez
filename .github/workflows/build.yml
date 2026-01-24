@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-14
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Clone whisper.cpp
+        run: git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
+
+      - name: Build whisper.cpp
+        run: |
+          cd whisper.cpp
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Speakez
+        run: |
+          xcodebuild build \
+            -project Speakez.xcodeproj \
+            -scheme Speakez \
+            -configuration Debug \
+            -destination "platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || true
