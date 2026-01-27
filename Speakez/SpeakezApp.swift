@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AppKit
+import os.log
 
 @main
 struct SpeakezApp: App {
@@ -203,7 +204,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check accessibility - trust hotkey service status if available
         let axTrusted = AXIsProcessTrusted()
         let hotkeyActive = hotkeyService?.isActive ?? false
-        NSLog("Permission check: AXIsProcessTrusted=\(axTrusted), hotkeyActive=\(hotkeyActive)")
+        Log.permissions.info("Permission check: AXIsProcessTrusted=\(axTrusted), hotkeyActive=\(hotkeyActive)")
         appState.hasAccessibilityPermission = axTrusted || hotkeyActive
     }
 

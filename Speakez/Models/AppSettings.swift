@@ -1,6 +1,7 @@
 import Foundation
 import Carbon.HIToolbox
 import ServiceManagement
+import os.log
 
 // MARK: - Hotkey Configuration
 struct HotkeyConfig: Codable, Equatable, Hashable {
@@ -39,25 +40,89 @@ struct HotkeyConfig: Codable, Equatable, Hashable {
     ]
 }
 
-// MARK: - Whisper Model
-enum WhisperModel: String, Codable, CaseIterable {
-    case tiny = "ggml-tiny.en.bin"
-    case base = "ggml-base.en.bin"
-    case small = "ggml-small.en.bin"
+// MARK: - Transcription Language
+enum TranscriptionLanguage: String, Codable, CaseIterable, Identifiable {
+    case auto = "auto"
+    case english = "en"
+    case spanish = "es"
+    case french = "fr"
+    case german = "de"
+    case italian = "it"
+    case portuguese = "pt"
+    case dutch = "nl"
+    case polish = "pl"
+    case russian = "ru"
+    case japanese = "ja"
+    case chinese = "zh"
+    case korean = "ko"
+    case arabic = "ar"
+    case hindi = "hi"
+
+    var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .tiny: return "Tiny (39MB) — Fastest"
-        case .base: return "Base (142MB) — Better accuracy"
-        case .small: return "Small (466MB) — Best accuracy"
+        case .auto: return "Auto-detect"
+        case .english: return "English"
+        case .spanish: return "Spanish"
+        case .french: return "French"
+        case .german: return "German"
+        case .italian: return "Italian"
+        case .portuguese: return "Portuguese"
+        case .dutch: return "Dutch"
+        case .polish: return "Polish"
+        case .russian: return "Russian"
+        case .japanese: return "Japanese"
+        case .chinese: return "Chinese"
+        case .korean: return "Korean"
+        case .arabic: return "Arabic"
+        case .hindi: return "Hindi"
+        }
+    }
+
+    /// Whether this language requires a multilingual model
+    var requiresMultilingualModel: Bool {
+        return self != .english
+    }
+}
+
+// MARK: - Whisper Model
+enum WhisperModel: String, Codable, CaseIterable, Identifiable {
+    // English-only models (smaller, faster for English)
+    case tinyEn = "ggml-tiny.en.bin"
+    case baseEn = "ggml-base.en.bin"
+    case smallEn = "ggml-small.en.bin"
+
+    // Multilingual models (support all languages)
+    case tiny = "ggml-tiny.bin"
+    case base = "ggml-base.bin"
+    case small = "ggml-small.bin"
+
+    var id: String { rawValue }
+
+    var isMultilingual: Bool {
+        switch self {
+        case .tiny, .base, .small: return true
+        case .tinyEn, .baseEn, .smallEn: return false
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .tinyEn: return "Tiny English (39MB)"
+        case .baseEn: return "Base English (142MB)"
+        case .smallEn: return "Small English (466MB)"
+        case .tiny: return "Tiny Multilingual (39MB)"
+        case .base: return "Base Multilingual (142MB)"
+        case .small: return "Small Multilingual (466MB)"
         }
     }
 
     var sizeDescription: String {
         switch self {
-        case .tiny: return "~39MB"
-        case .base: return "~142MB"
-        case .small: return "~466MB"
+        case .tinyEn, .tiny: return "~39MB"
+        case .baseEn, .base: return "~142MB"
+        case .smallEn, .small: return "~466MB"
         }
     }
 
@@ -68,10 +133,22 @@ enum WhisperModel: String, Codable, CaseIterable {
 
     var speedDescription: String {
         switch self {
-        case .tiny: return "~2-3x realtime on Intel"
-        case .base: return "~1-1.5x realtime on Intel"
-        case .small: return "~0.5x realtime on Intel (slow)"
+        case .tinyEn: return "Fastest — English only"
+        case .baseEn: return "Balanced — English only"
+        case .smallEn: return "Most accurate — English only"
+        case .tiny: return "Fastest — All languages"
+        case .base: return "Balanced — All languages"
+        case .small: return "Most accurate — All languages"
         }
+    }
+
+    /// Models grouped by type for UI display
+    static var englishModels: [WhisperModel] {
+        [.tinyEn, .baseEn, .smallEn]
+    }
+
+    static var multilingualModels: [WhisperModel] {
+        [.tiny, .base, .small]
     }
 }
 
@@ -151,9 +228,9 @@ class AppSettings: ObservableObject {
         }
     }
 
-    @Published var transcriptionLanguage: String {
+    @Published var transcriptionLanguage: TranscriptionLanguage {
         didSet {
-            defaults.set(transcriptionLanguage, forKey: Keys.transcriptionLanguage)
+            defaults.set(transcriptionLanguage.rawValue, forKey: Keys.transcriptionLanguage)
         }
     }
 
@@ -171,18 +248,31 @@ class AppSettings: ObservableObject {
             self.hotkeyConfig = .defaultOption
         }
 
-        // Load model selection
+        // Load model selection (with migration from old enum values)
         if let modelRaw = defaults.string(forKey: Keys.selectedModel),
            let model = WhisperModel(rawValue: modelRaw) {
             self.selectedModel = model
+        } else if let modelRaw = defaults.string(forKey: Keys.selectedModel) {
+            // Migration: old enum used different raw values
+            switch modelRaw {
+            case "ggml-tiny.en.bin": self.selectedModel = .tinyEn
+            case "ggml-base.en.bin": self.selectedModel = .baseEn
+            case "ggml-small.en.bin": self.selectedModel = .smallEn
+            default: self.selectedModel = .tinyEn
+            }
         } else {
-            self.selectedModel = .tiny // Default to tiny for Intel performance
+            self.selectedModel = .tinyEn // Default to tiny English for best performance
         }
 
         self.playSounds = defaults.object(forKey: Keys.playSounds) as? Bool ?? true
         self.autoStartOnLogin = defaults.bool(forKey: Keys.autoStartOnLogin)
         self.selectedAudioDevice = defaults.string(forKey: Keys.selectedAudioDevice)
-        self.transcriptionLanguage = defaults.string(forKey: Keys.transcriptionLanguage) ?? "en"
+        if let langRaw = defaults.string(forKey: Keys.transcriptionLanguage),
+           let lang = TranscriptionLanguage(rawValue: langRaw) {
+            self.transcriptionLanguage = lang
+        } else {
+            self.transcriptionLanguage = .english
+        }
         self.clipboardOnlyMode = defaults.bool(forKey: Keys.clipboardOnlyMode)
     }
 
@@ -215,19 +305,19 @@ class AppSettings: ObservableObject {
                 if autoStartOnLogin {
                     if service.status != .enabled {
                         try service.register()
-                        print("AppSettings: Registered as login item")
+                        Log.settings.info(" Registered as login item")
                     }
                 } else {
                     if service.status == .enabled {
                         try service.unregister()
-                        print("AppSettings: Unregistered from login items")
+                        Log.settings.info(" Unregistered from login items")
                     }
                 }
             } catch {
-                print("AppSettings: Failed to update login item: \(error.localizedDescription)")
+                Log.settings.info(" Failed to update login item: \(error.localizedDescription)")
             }
         } else {
-            print("AppSettings: Login items require macOS 13+")
+            Log.settings.info(" Login items require macOS 13+")
         }
     }
 
@@ -250,11 +340,11 @@ class AppSettings: ObservableObject {
     func resetToDefaults() {
         hasCompletedSetup = false
         hotkeyConfig = .defaultOption
-        selectedModel = .tiny
+        selectedModel = .tinyEn
         playSounds = true
         autoStartOnLogin = false
         selectedAudioDevice = nil
-        transcriptionLanguage = "en"
+        transcriptionLanguage = .english
         clipboardOnlyMode = false
     }
 }

@@ -13,16 +13,18 @@ struct MainSettingsView: View {
         case welcome = "Welcome"
         case general = "General"
         case hotkey = "Hotkey"
+        case language = "Language"
         case model = "Model"
         case audio = "Audio"
         case permissions = "Permissions"
         case history = "History"
-        
+
         var icon: String {
             switch self {
             case .welcome: return "hand.wave"
             case .general: return "gearshape"
             case .hotkey: return "keyboard"
+            case .language: return "globe"
             case .model: return "cpu"
             case .audio: return "mic"
             case .permissions: return "lock.shield"
@@ -112,7 +114,12 @@ struct MainSettingsView: View {
         case .permissions:
             return !appState.hasMicrophonePermission || !appState.hasAccessibilityPermission
         case .model:
-            return !settings.isModelDownloaded && Bundle.main.path(forResource: "ggml-tiny.en", ofType: "bin") == nil
+            let hasBundledModel = Bundle.main.path(forResource: "ggml-tiny.en", ofType: "bin") != nil ||
+                                  Bundle.main.path(forResource: "ggml-tiny", ofType: "bin") != nil
+            return !settings.isModelDownloaded && !hasBundledModel
+        case .language:
+            // Show attention if using non-English language with English-only model
+            return settings.transcriptionLanguage.requiresMultilingualModel && !settings.selectedModel.isMultilingual
         default:
             return false
         }
@@ -177,6 +184,8 @@ struct MainSettingsView: View {
                         GeneralSection(settings: settings)
                     case .hotkey:
                         HotkeySection(settings: settings)
+                    case .language:
+                        LanguageSection(settings: settings)
                     case .model:
                         ModelSection(settings: settings)
                     case .audio:
@@ -299,7 +308,7 @@ struct WelcomeSection: View {
                 VStack(spacing: Theme.Spacing.sm) {
                     SetupStatusRow(title: "Microphone", isComplete: appState.hasMicrophonePermission)
                     SetupStatusRow(title: "Accessibility", isComplete: appState.hasAccessibilityPermission)
-                    SetupStatusRow(title: "AI Model", isComplete: AppSettings.shared.isModelDownloaded || Bundle.main.path(forResource: "ggml-tiny.en", ofType: "bin") != nil)
+                    SetupStatusRow(title: "AI Model", isComplete: AppSettings.shared.isModelDownloaded || Bundle.main.path(forResource: "ggml-tiny.en", ofType: "bin") != nil || Bundle.main.path(forResource: "ggml-tiny", ofType: "bin") != nil)
                 }
             }
             
@@ -458,6 +467,108 @@ struct HotkeySection: View {
     }
 }
 
+// MARK: - Language Section
+
+struct LanguageSection: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+            SettingsGroup(title: "TRANSCRIPTION LANGUAGE") {
+                VStack(spacing: 0) {
+                    ForEach(TranscriptionLanguage.allCases) { language in
+                        LanguageOptionRow(
+                            language: language,
+                            isSelected: settings.transcriptionLanguage == language,
+                            onSelect: { settings.transcriptionLanguage = language }
+                        )
+
+                        if language != TranscriptionLanguage.allCases.last {
+                            Rectangle().fill(Theme.Colors.border).frame(height: 1)
+                        }
+                    }
+                }
+                .overlay(Rectangle().stroke(Theme.Colors.border, lineWidth: 1))
+            }
+
+            // Warning if using English model with non-English language
+            if settings.transcriptionLanguage.requiresMultilingualModel && !settings.selectedModel.isMultilingual {
+                SettingsGroup(title: "MODEL COMPATIBILITY") {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Rectangle()
+                            .fill(Theme.Colors.warning)
+                            .frame(width: 4, height: 40)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Multilingual model required")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(Theme.Colors.warning)
+
+                            Text("Your selected language requires a multilingual model. Go to Model settings to download one.")
+                                .font(.system(size: 12))
+                                .foregroundColor(Theme.Colors.textSecondary)
+                        }
+                    }
+                }
+            }
+
+            SettingsGroup(title: "TIPS") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("• Auto-detect works best with multilingual models")
+                    Text("• English-only models are faster but only support English")
+                    Text("• For best accuracy, select your specific language")
+                }
+                .font(.system(size: 12))
+                .foregroundColor(Theme.Colors.textSecondary)
+            }
+
+            Spacer()
+        }
+    }
+}
+
+struct LanguageOptionRow: View {
+    let language: TranscriptionLanguage
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack {
+                Rectangle()
+                    .fill(isSelected ? Theme.Colors.sharpGreen : Color.clear)
+                    .frame(width: 4)
+
+                Text(language.displayName)
+                    .font(.system(size: 14, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(Theme.Colors.textPrimary)
+                    .padding(.leading, Theme.Spacing.md)
+
+                if language.requiresMultilingualModel {
+                    Text("multilingual")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(Theme.Colors.textSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.Colors.secondaryBackground)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Theme.Colors.sharpGreen)
+                        .padding(.trailing, Theme.Spacing.md)
+                }
+            }
+            .frame(height: 44)
+            .background(isSelected ? Theme.Colors.secondaryBackground : Theme.Colors.background)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Model Section
 
 struct ModelSection: View {
@@ -465,12 +576,39 @@ struct ModelSection: View {
     @State private var isDownloading = false
     @State private var downloadProgress: Double = 0
     @State private var downloadError: String?
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
-            SettingsGroup(title: "WHISPER MODEL") {
+            // Show warning if language requires multilingual but using English model
+            if settings.transcriptionLanguage.requiresMultilingualModel && !settings.selectedModel.isMultilingual {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Rectangle()
+                        .fill(Theme.Colors.warning)
+                        .frame(width: 4, height: 40)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Switch to a multilingual model")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(Theme.Colors.warning)
+
+                        Text("Your language (\(settings.transcriptionLanguage.displayName)) requires a multilingual model.")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.textSecondary)
+                    }
+                }
+                .padding(Theme.Spacing.md)
+                .background(Theme.Colors.secondaryBackground)
+            }
+
+            // English-only models
+            SettingsGroup(title: "ENGLISH-ONLY MODELS") {
+                Text("Optimized for English — faster performance")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.Colors.textSecondary)
+                    .padding(.bottom, Theme.Spacing.xs)
+
                 VStack(spacing: 0) {
-                    ForEach(WhisperModel.allCases, id: \.self) { model in
+                    ForEach(WhisperModel.englishModels) { model in
                         ModelOptionRow(
                             model: model,
                             isSelected: settings.selectedModel == model,
@@ -478,15 +616,40 @@ struct ModelSection: View {
                             onSelect: { settings.selectedModel = model },
                             onDownload: { downloadModel(model) }
                         )
-                        
-                        if model != WhisperModel.allCases.last {
+
+                        if model != WhisperModel.englishModels.last {
                             Rectangle().fill(Theme.Colors.border).frame(height: 1)
                         }
                     }
                 }
                 .overlay(Rectangle().stroke(Theme.Colors.border, lineWidth: 1))
             }
-            
+
+            // Multilingual models
+            SettingsGroup(title: "MULTILINGUAL MODELS") {
+                Text("Support all languages including auto-detection")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.Colors.textSecondary)
+                    .padding(.bottom, Theme.Spacing.xs)
+
+                VStack(spacing: 0) {
+                    ForEach(WhisperModel.multilingualModels) { model in
+                        ModelOptionRow(
+                            model: model,
+                            isSelected: settings.selectedModel == model,
+                            isDownloaded: isModelDownloaded(model),
+                            onSelect: { settings.selectedModel = model },
+                            onDownload: { downloadModel(model) }
+                        )
+
+                        if model != WhisperModel.multilingualModels.last {
+                            Rectangle().fill(Theme.Colors.border).frame(height: 1)
+                        }
+                    }
+                }
+                .overlay(Rectangle().stroke(Theme.Colors.border, lineWidth: 1))
+            }
+
             if isDownloading {
                 SettingsGroup(title: "DOWNLOADING") {
                     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
@@ -498,28 +661,31 @@ struct ModelSection: View {
                             }
                         }
                         .frame(height: 8)
-                        
+
                         Text("\(Int(downloadProgress * 100))%")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(Theme.Colors.sharpGreen)
                     }
                 }
             }
-            
+
             if let error = downloadError {
                 Text(error)
                     .font(.system(size: 12))
                     .foregroundColor(Theme.Colors.error)
             }
-            
-            SettingsGroup(title: "PERFORMANCE") {
+
+            SettingsGroup(title: "TIPS") {
                 VStack(alignment: .leading, spacing: 6) {
-                    PerformanceNote(model: "tiny.en", note: "Recommended — fast and accurate", isRecommended: true)
-                    PerformanceNote(model: "base.en", note: "Slower — better for complex audio", isRecommended: false)
-                    PerformanceNote(model: "small.en", note: "Slowest — best accuracy", isRecommended: false)
+                    Text("• Tiny models are fastest, best for quick dictation")
+                    Text("• Base models balance speed and accuracy")
+                    Text("• Small models are most accurate but slower")
+                    Text("• Use English-only models if you only need English")
                 }
+                .font(.system(size: 12))
+                .foregroundColor(Theme.Colors.textSecondary)
             }
-            
+
             Spacer()
         }
     }
@@ -530,8 +696,9 @@ struct ModelSection: View {
         if let path = modelPath, FileManager.default.fileExists(atPath: path.path) {
             return true
         }
-        // Also check bundle
-        return Bundle.main.path(forResource: model.rawValue.replacingOccurrences(of: ".bin", with: ""), ofType: "bin") != nil
+        // Also check bundle - extract resource name without extension
+        let resourceName = model.rawValue.replacingOccurrences(of: ".bin", with: "")
+        return Bundle.main.path(forResource: resourceName, ofType: "bin") != nil
     }
     
     private func downloadModel(_ model: WhisperModel) {

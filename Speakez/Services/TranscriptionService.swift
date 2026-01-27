@@ -1,4 +1,5 @@
 import Foundation
+import os.log
 
 /// Protocol for speech transcription backends
 protocol TranscriptionBackend {
@@ -15,9 +16,11 @@ class TranscriptionService {
     private let settings = AppSettings.shared
     private var isInitialized = false
 
-    // Thread configuration for Intel CPU
-    // Use physical core count for optimal performance
-    private let threadCount: Int32 = 4
+    // Thread configuration - adaptive based on CPU cores
+    // Uses processor count minus 2 (minimum 4) for optimal performance
+    private var threadCount: Int32 {
+        return Int32(max(4, ProcessInfo.processInfo.processorCount - 2))
+    }
 
     // MARK: - Initialization
 
@@ -32,7 +35,7 @@ class TranscriptionService {
     /// - Returns: Transcribed text or nil on failure
     func transcribe(audioData: [Float]) -> String? {
         guard let backend = backend, backend.isModelLoaded else {
-            print("TranscriptionService: Model not loaded")
+            Log.transcription.info(" Model not loaded")
             // Try to load the model if not already loaded
             if !loadModelIfNeeded() {
                 return nil
@@ -56,7 +59,7 @@ class TranscriptionService {
         let audioDuration = Double(audioData.count) / 16000.0
         let ratio = audioDuration / elapsed
 
-        print("TranscriptionService: Transcribed \(String(format: "%.2f", audioDuration))s audio in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", ratio))x realtime)")
+        Log.transcription.info(" Transcribed \(String(format: "%.2f", audioDuration))s audio in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", ratio))x realtime)")
 
         // Clean up the result
         return result?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
@@ -92,19 +95,22 @@ class TranscriptionService {
             return backend?.isModelLoaded ?? false
         }
 
-        // First try bundled model
-        if let bundledPath = Bundle.main.path(forResource: "ggml-tiny.en", ofType: "bin") {
-            print("TranscriptionService: Loading bundled model at \(bundledPath)")
-            return backend.loadModel(at: bundledPath)
-        }
-
-        // Then try Application Support directory
+        // First try the selected model from Application Support directory
         if let modelPath = settings.modelPath?.path, FileManager.default.fileExists(atPath: modelPath) {
-            print("TranscriptionService: Loading model at \(modelPath)")
+            Log.transcription.info(" Loading model at \(modelPath)")
             return backend.loadModel(at: modelPath)
         }
 
-        print("TranscriptionService: No model found. Please download a model.")
+        // Try bundled models (check both English and multilingual tiny models)
+        let bundledModels = ["ggml-tiny.en", "ggml-tiny"]
+        for modelName in bundledModels {
+            if let bundledPath = Bundle.main.path(forResource: modelName, ofType: "bin") {
+                Log.transcription.info(" Loading bundled model at \(bundledPath)")
+                return backend.loadModel(at: bundledPath)
+            }
+        }
+
+        Log.transcription.info(" No model found. Please download a model.")
         return false
     }
 }
@@ -145,17 +151,17 @@ class WhisperBackend: TranscriptionBackend {
         whisperContext = whisper_init_from_file_with_params(path, params)
 
         if whisperContext != nil {
-            print("WhisperBackend: Model loaded successfully")
+            Log.transcription.info("WhisperBackend: Model loaded successfully")
             return true
         } else {
-            print("WhisperBackend: Failed to load model at \(path)")
+            Log.transcription.info("WhisperBackend: Failed to load model at \(path)")
             return false
         }
     }
 
     func transcribe(audioData: [Float]) -> String? {
         guard let context = whisperContext else {
-            print("WhisperBackend: No context available")
+            Log.transcription.info("WhisperBackend: No context available")
             return nil
         }
 
@@ -173,8 +179,9 @@ class WhisperBackend: TranscriptionBackend {
         params.suppress_blank = true
         params.suppress_nst = true
 
-        // Set language to English
-        let languageStr = "en"
+        // Set language from settings (or auto-detect)
+        let settings = AppSettings.shared
+        let languageStr = settings.transcriptionLanguage == .auto ? "auto" : settings.transcriptionLanguage.rawValue
         let result = languageStr.withCString { langCStr in
             params.language = langCStr
 
@@ -185,7 +192,7 @@ class WhisperBackend: TranscriptionBackend {
         }
 
         if result != 0 {
-            print("WhisperBackend: Transcription failed with code \(result)")
+            Log.transcription.info("WhisperBackend: Transcription failed with code \(result)")
             return nil
         }
 

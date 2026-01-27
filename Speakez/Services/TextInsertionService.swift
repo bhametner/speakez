@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Carbon.HIToolbox
+import os.log
 
 /// Service for inserting text at the cursor position in any application
 /// Uses clipboard + Cmd+V approach for universal compatibility
@@ -38,7 +39,7 @@ class TextInsertionService {
     func insertTextSync(_ text: String) {
         guard !text.isEmpty else { return }
         guard AXIsProcessTrusted() else {
-            print("TextInsertionService: Accessibility permission required")
+            Log.textInsertion.info(" Accessibility permission required")
             return
         }
 
@@ -78,7 +79,7 @@ class TextInsertionService {
         // Check if clipboard was modified externally during the paste operation
         // If so, don't restore (user may have copied something else)
         if pasteboard.changeCount != savedChangeCount + 1 {
-            print("TextInsertionService: Clipboard modified externally, skipping restore")
+            Log.textInsertion.info(" Clipboard modified externally, skipping restore")
             return
         }
 
@@ -91,7 +92,7 @@ class TextInsertionService {
         pasteboard.writeObjects(items)
 
         savedClipboardItems = nil
-        print("TextInsertionService: Clipboard restored")
+        Log.textInsertion.info(" Clipboard restored")
     }
 
     // MARK: - Keystroke Simulation
@@ -99,7 +100,7 @@ class TextInsertionService {
     private func simulatePaste() {
         // Create Cmd+V key down event
         guard let source = CGEventSource(stateID: .hidSystemState) else {
-            print("TextInsertionService: Failed to create event source")
+            Log.textInsertion.info(" Failed to create event source")
             return
         }
 
@@ -108,13 +109,13 @@ class TextInsertionService {
 
         // Create key down event
         guard let keyDownEvent = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true) else {
-            print("TextInsertionService: Failed to create key down event")
+            Log.textInsertion.info(" Failed to create key down event")
             return
         }
 
         // Create key up event
         guard let keyUpEvent = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
-            print("TextInsertionService: Failed to create key up event")
+            Log.textInsertion.info(" Failed to create key up event")
             return
         }
 
@@ -126,7 +127,7 @@ class TextInsertionService {
         keyDownEvent.post(tap: .cghidEventTap)
         keyUpEvent.post(tap: .cghidEventTap)
 
-        print("TextInsertionService: Paste simulated")
+        Log.textInsertion.info(" Paste simulated")
     }
 
     // MARK: - Alternative: Accessibility API Text Insertion
@@ -135,14 +136,14 @@ class TextInsertionService {
     /// This is provided as a fallback but not recommended for general use
     func insertTextViaAccessibility(_ text: String) {
         guard AXIsProcessTrusted() else {
-            print("TextInsertionService: Accessibility permission required")
+            Log.textInsertion.info(" Accessibility permission required")
             return
         }
 
         // Get the frontmost application
         guard let frontApp = NSWorkspace.shared.frontmostApplication,
               let pid = frontApp.processIdentifier as pid_t? else {
-            print("TextInsertionService: Could not get frontmost application")
+            Log.textInsertion.info(" Could not get frontmost application")
             return
         }
 
@@ -153,7 +154,7 @@ class TextInsertionService {
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
 
         guard result == .success, let element = focusedElement else {
-            print("TextInsertionService: Could not get focused element")
+            Log.textInsertion.info(" Could not get focused element")
             return
         }
 
@@ -163,9 +164,9 @@ class TextInsertionService {
         let setResult = AXUIElementSetAttributeValue(axElement, kAXValueAttribute as CFString, text as CFTypeRef)
 
         if setResult == .success {
-            print("TextInsertionService: Text inserted via Accessibility API")
+            Log.textInsertion.info(" Text inserted via Accessibility API")
         } else {
-            print("TextInsertionService: Accessibility API insertion failed, falling back to clipboard")
+            Log.textInsertion.info(" Accessibility API insertion failed, falling back to clipboard")
             insertText(text)
         }
     }
@@ -192,7 +193,7 @@ extension TextInsertionService {
     ///   - delay: Delay between keystrokes in seconds
     func simulateTyping(_ text: String, delay: TimeInterval = 0.01) {
         guard AXIsProcessTrusted() else {
-            print("TextInsertionService: Accessibility permission required")
+            Log.textInsertion.info(" Accessibility permission required")
             return
         }
 

@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import os.log
 
 /// Errors that can occur during audio capture
 enum AudioCaptureError: Error {
@@ -50,7 +51,7 @@ class AudioCaptureService {
         defer { captureLock.unlock() }
 
         guard !isCapturing else {
-            print("AudioCaptureService: Already capturing, ignoring")
+            Log.audio.info(" Already capturing, ignoring")
             return
         }
 
@@ -68,7 +69,7 @@ class AudioCaptureService {
             channels: 1,
             interleaved: false
         ) else {
-            print("AudioCaptureService: Failed to create target format")
+            Log.audio.info(" Failed to create target format")
             throw AudioCaptureError.failedToCreateFormat
         }
 
@@ -90,11 +91,11 @@ class AudioCaptureService {
         do {
             try audioEngine.start()
             isCapturing = true
-            print("AudioCaptureService: Started capturing at \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount) channels")
+            Log.audio.info(" Started capturing at \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount) channels")
         } catch {
             // Clean up the tap if engine failed to start
             inputNode.removeTap(onBus: 0)
-            print("AudioCaptureService: Failed to start - \(error.localizedDescription)")
+            Log.audio.info(" Failed to start - \(error.localizedDescription)")
             throw AudioCaptureError.engineStartFailed(error)
         }
     }
@@ -117,7 +118,7 @@ class AudioCaptureService {
         bufferLock.unlock()
 
         let durationSeconds = Double(capturedData.count) / targetSampleRate
-        print("AudioCaptureService: Stopped. Captured \(capturedData.count) samples (\(String(format: "%.2f", durationSeconds))s)")
+        Log.audio.info(" Stopped. Captured \(capturedData.count) samples (\(String(format: "%.2f", durationSeconds))s)")
 
         return capturedData.isEmpty ? nil : capturedData
     }
@@ -150,7 +151,7 @@ class AudioCaptureService {
             converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
 
             if let error = error {
-                print("AudioCaptureService: Conversion error - \(error.localizedDescription)")
+                Log.audio.info(" Conversion error - \(error.localizedDescription)")
                 return
             }
 

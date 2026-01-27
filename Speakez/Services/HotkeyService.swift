@@ -1,6 +1,7 @@
 import Foundation
 import Carbon.HIToolbox
 import Cocoa
+import os.log
 
 /// Service for detecting global hotkey press/release events
 /// Uses CGEventTap to monitor key events system-wide
@@ -48,7 +49,7 @@ class HotkeyService {
         // Check accessibility permission
         let trusted = AXIsProcessTrusted()
         guard trusted else {
-            print("HotkeyService: No accessibility permission")
+            Log.hotkey.info(" No accessibility permission")
             return
         }
 
@@ -71,21 +72,21 @@ class HotkeyService {
         )
 
         guard let eventTap = eventTap else {
-            print("HotkeyService: Failed to create event tap")
+            Log.hotkey.info(" Failed to create event tap")
             return
         }
 
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         guard let runLoopSource = runLoopSource else {
-            print("HotkeyService: Failed to create run loop source")
+            Log.hotkey.info(" Failed to create run loop source")
             return
         }
 
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
         
-        print("HotkeyService: Ready - hold Option key to record, Escape to cancel")
-        print("HotkeyService: isActive = \(isActive)")
+        Log.hotkey.info(" Ready - hold Option key to record, Escape to cancel")
+        Log.hotkey.info(" isActive = \(isActive)")
     }
 
     func stop() {
@@ -103,11 +104,11 @@ class HotkeyService {
         isKeyDown = false
         stateLock.unlock()
 
-        print("HotkeyService: Stopped")
+        Log.hotkey.info(" Stopped")
     }
 
     func updateHotkey(_ config: HotkeyConfig) {
-        print("HotkeyService: Hotkey updated to \(config.displayName)")
+        Log.hotkey.info(" Hotkey updated to \(config.displayName)")
     }
 
     // MARK: - Private Methods
