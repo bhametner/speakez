@@ -1,0 +1,125 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on version tags like v1.0.0, v1.1.0, etc.
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for changelog generation
+
+      - name: Get previous tag
+        id: previoustag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get current tag
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          PREV_TAG="${{ steps.previoustag.outputs.tag }}"
+
+          echo "Generating changelog from $PREV_TAG to $CURRENT_TAG"
+
+          # Generate changelog from commits
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log $PREV_TAG..$CURRENT_TAG --pretty=format:"- %s" --no-merges)
+          else
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges -20)
+          fi
+
+          # Categorize commits
+          FEATURES=""
+          FIXES=""
+          IMPROVEMENTS=""
+          OTHER=""
+
+          while IFS= read -r line; do
+            commit_msg="${line#- }"
+            # Check commit type
+            if [[ "$commit_msg" =~ ^[Ff]eat ]]; then
+              FEATURES="$FEATURES
+          - ${commit_msg#*: }"
+            elif [[ "$commit_msg" =~ ^[Ff]ix ]]; then
+              FIXES="$FIXES
+          - ${commit_msg#*: }"
+            elif [[ "$commit_msg" =~ ^[Ii]mprov|^[Ee]nhance|^[Pp]erf|^[Rr]efactor ]]; then
+              IMPROVEMENTS="$IMPROVEMENTS
+          - ${commit_msg#*: }"
+            elif [[ "$commit_msg" =~ ^[Dd]ocs|^[Cc]hore|^[Ss]tyle|^[Tt]est ]]; then
+              # Skip docs, chore, style, test commits from release notes
+              continue
+            else
+              OTHER="$OTHER
+          - $commit_msg"
+            fi
+          done <<< "$COMMITS"
+
+          # Build changelog
+          CHANGELOG=""
+
+          if [ -n "$FEATURES" ]; then
+            CHANGELOG="$CHANGELOG
+          ## Features
+          $FEATURES
+          "
+          fi
+
+          if [ -n "$FIXES" ]; then
+            CHANGELOG="$CHANGELOG
+          ## Bug Fixes
+          $FIXES
+          "
+          fi
+
+          if [ -n "$IMPROVEMENTS" ]; then
+            CHANGELOG="$CHANGELOG
+          ## Improvements
+          $IMPROVEMENTS
+          "
+          fi
+
+          if [ -n "$OTHER" ] && [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$IMPROVEMENTS" ]; then
+            CHANGELOG="$CHANGELOG
+          ## Changes
+          $OTHER
+          "
+          fi
+
+          # Write to file for the release step
+          echo "$CHANGELOG" > CHANGELOG.md
+          cat CHANGELOG.md
+
+          # Set output (escape newlines for GitHub Actions)
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "changelog<<$EOF" >> $GITHUB_OUTPUT
+          cat CHANGELOG.md >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body: ${{ steps.changelog.outputs.changelog }}
+          generate_release_notes: false
+          draft: false
+          prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') || contains(github.ref, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Vercel Rebuild (optional)
+        if: env.VERCEL_DEPLOY_HOOK != ''
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          curl -X POST "$VERCEL_DEPLOY_HOOK"

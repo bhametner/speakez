@@ -293,21 +293,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         audioCaptureService?.onAudioLevel = nil
 
-        guard let audioData = audioCaptureService?.stopCapture() else {
-            DispatchQueue.main.async {
-                self.appState.recordingState = .error("No audio captured")
-                self.updateStatusIcon(for: self.appState.recordingState)
-                self.updateStatusText("Error: No audio")
-            }
-            return
-        }
-
-        // Check minimum audio duration (0.5 seconds at 16kHz = 8000 samples)
-        if audioData.count < 8000 {
+        // Handle no audio or very short audio gracefully (quick tap)
+        guard let audioData = audioCaptureService?.stopCapture(), audioData.count >= 8000 else {
+            // Quick tap or no audio - just return to ready state silently
             DispatchQueue.main.async {
                 self.appState.recordingState = .idle
                 self.updateStatusIcon(for: .idle)
-                self.updateStatusText("Ready (audio too short)")
+                self.updateStatusText("Ready")
             }
             return
         }
