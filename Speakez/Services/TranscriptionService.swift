@@ -3,7 +3,7 @@ import os.log
 
 /// Protocol for speech transcription backends
 protocol TranscriptionBackend {
-    func transcribe(audioData: [Float]) -> String?
+    func transcribe(audioData: [Float], initialPrompt: String?) -> String?
     var isModelLoaded: Bool { get }
     func loadModel(at path: String) -> Bool
 }
@@ -31,9 +31,11 @@ class TranscriptionService {
     // MARK: - Public Methods
 
     /// Transcribe audio data to text
-    /// - Parameter audioData: Array of Float32 samples at 16kHz mono
+    /// - Parameters:
+    ///   - audioData: Array of Float32 samples at 16kHz mono
+    ///   - initialPrompt: Optional vocabulary hint string to bias transcription
     /// - Returns: Transcribed text or nil on failure
-    func transcribe(audioData: [Float]) -> String? {
+    func transcribe(audioData: [Float], initialPrompt: String? = nil) -> String? {
         guard let backend = backend, backend.isModelLoaded else {
             Log.transcription.info(" Model not loaded")
             // Try to load the model if not already loaded
@@ -44,16 +46,16 @@ class TranscriptionService {
             guard let loadedBackend = self.backend, loadedBackend.isModelLoaded else {
                 return nil
             }
-            return performTranscription(backend: loadedBackend, audioData: audioData)
+            return performTranscription(backend: loadedBackend, audioData: audioData, initialPrompt: initialPrompt)
         }
 
-        return performTranscription(backend: backend, audioData: audioData)
+        return performTranscription(backend: backend, audioData: audioData, initialPrompt: initialPrompt)
     }
 
-    private func performTranscription(backend: TranscriptionBackend, audioData: [Float]) -> String? {
+    private func performTranscription(backend: TranscriptionBackend, audioData: [Float], initialPrompt: String? = nil) -> String? {
         let startTime = CFAbsoluteTimeGetCurrent()
 
-        let result = backend.transcribe(audioData: audioData)
+        let result = backend.transcribe(audioData: audioData, initialPrompt: initialPrompt)
 
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         let audioDuration = Double(audioData.count) / 16000.0
@@ -145,7 +147,12 @@ class WhisperBackend: TranscriptionBackend {
 
         // Initialize context parameters
         var params = whisper_context_default_params()
-        params.use_gpu = false  // Intel Mac - no GPU acceleration
+        // Enable Metal GPU acceleration on Apple Silicon for faster inference
+        #if arch(arm64)
+        params.use_gpu = true
+        #else
+        params.use_gpu = false
+        #endif
 
         // Load the model
         whisperContext = whisper_init_from_file_with_params(path, params)
@@ -159,7 +166,7 @@ class WhisperBackend: TranscriptionBackend {
         }
     }
 
-    func transcribe(audioData: [Float]) -> String? {
+    func transcribe(audioData: [Float], initialPrompt: String? = nil) -> String? {
         guard let context = whisperContext else {
             Log.transcription.info("WhisperBackend: No context available")
             return nil
@@ -185,7 +192,20 @@ class WhisperBackend: TranscriptionBackend {
         let result = languageStr.withCString { langCStr in
             params.language = langCStr
 
-            // Run inference
+            // Set initial_prompt to bias transcription toward project vocabulary
+            if let prompt = initialPrompt, !prompt.isEmpty {
+                Log.transcription.info("WhisperBackend: Using vocabulary prompt (\(prompt.count) chars)")
+                return prompt.withCString { promptCStr in
+                    params.initial_prompt = promptCStr
+
+                    // Run inference
+                    return audioData.withUnsafeBufferPointer { bufferPointer in
+                        whisper_full(context, params, bufferPointer.baseAddress, Int32(audioData.count))
+                    }
+                }
+            }
+
+            // Run inference without initial prompt
             return audioData.withUnsafeBufferPointer { bufferPointer in
                 whisper_full(context, params, bufferPointer.baseAddress, Int32(audioData.count))
             }

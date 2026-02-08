@@ -41,3 +41,13 @@ jobs:
             -destination "platform=macOS" \
             CODE_SIGNING_ALLOWED=NO \
             | xcpretty || true
+
+      - name: Run Tests
+        run: |
+          xcodebuild test \
+            -project Speakez.xcodeproj \
+            -scheme Speakez \
+            -configuration Debug \
+            -destination "platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty
