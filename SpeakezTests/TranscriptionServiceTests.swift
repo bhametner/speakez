@@ -17,7 +17,7 @@ class MockTranscriptionBackend: TranscriptionBackend {
         return true
     }
 
-    func transcribe(audioData: [Float]) -> String? {
+    func transcribe(audioData: [Float], initialPrompt: String? = nil) -> String? {
         transcribeCallCount += 1
         lastAudioData = audioData
         return transcriptionResult

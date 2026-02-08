@@ -15,12 +15,43 @@ enum Theme {
         static let accentGreen = Color(hex: "34D399")
         static let lightGreen = Color(hex: "D1FAE5")
         
-        // Neutral
-        static let background = Color.white
-        static let secondaryBackground = Color(hex: "F3F4F6")
-        static let textPrimary = Color(hex: "111827")
-        static let textSecondary = Color(hex: "6B7280")
-        static let border = Color(hex: "E5E7EB")
+        // Neutral (adaptive light/dark)
+        static let background = Color(NSColor(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1) // #1C1C1E
+                : NSColor.white
+        }))
+        static let secondaryBackground = Color(NSColor(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: 0.17, green: 0.17, blue: 0.18, alpha: 1) // #2C2C2E
+                : NSColor(hex: "F3F4F6")
+        }))
+        static let textPrimary = Color(NSColor(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: 0.96, green: 0.96, blue: 0.97, alpha: 1) // #F5F5F7
+                : NSColor(hex: "111827")
+        }))
+        static let textSecondary = Color(NSColor(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: 0.60, green: 0.60, blue: 0.63, alpha: 1) // #9898A0
+                : NSColor(hex: "6B7280")
+        }))
+        static let border = Color(NSColor(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: 0.23, green: 0.23, blue: 0.25, alpha: 1) // #3A3A40
+                : NSColor(hex: "E5E7EB")
+        }))
+
+        // Card / surface
+        static let cardBackground = Color(NSColor(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: 0.14, green: 0.14, blue: 0.15, alpha: 1) // #242426
+                : NSColor.white
+        }))
+
+        // Fixed colors for elements that should not adapt (e.g., text on green badges)
+        static let fixedWhite = Color.white
+        static let fixedBlack = Color.black
         
         // Status
         static let success = sharpGreen
@@ -29,16 +60,38 @@ enum Theme {
         static let recording = Color(hex: "EF4444")
         static let processing = Color(hex: "3B82F6")
         
-        // NSColor variants for AppKit
+        // NSColor variants for AppKit (adaptive light/dark)
         enum NS {
             static let sharpGreen = NSColor(hex: "10B981")
             static let darkGreen = NSColor(hex: "059669")
-            static let textPrimary = NSColor(hex: "111827")
-            static let textSecondary = NSColor(hex: "6B7280")
-            static let background = NSColor.white
-            static let secondaryBackground = NSColor(hex: "F3F4F6")
-            static let border = NSColor(hex: "E5E7EB")
+            static let textPrimary = NSColor(name: nil, dynamicProvider: { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(srgbRed: 0.96, green: 0.96, blue: 0.97, alpha: 1)
+                    : NSColor(hex: "111827")
+            })
+            static let textSecondary = NSColor(name: nil, dynamicProvider: { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(srgbRed: 0.60, green: 0.60, blue: 0.63, alpha: 1)
+                    : NSColor(hex: "6B7280")
+            })
+            static let background = NSColor(name: nil, dynamicProvider: { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1)
+                    : NSColor.white
+            })
+            static let secondaryBackground = NSColor(name: nil, dynamicProvider: { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(srgbRed: 0.17, green: 0.17, blue: 0.18, alpha: 1)
+                    : NSColor(hex: "F3F4F6")
+            })
+            static let border = NSColor(name: nil, dynamicProvider: { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(srgbRed: 0.23, green: 0.23, blue: 0.25, alpha: 1)
+                    : NSColor(hex: "E5E7EB")
+            })
             static let recording = NSColor(hex: "EF4444")
+            static let processing = NSColor(hex: "3B82F6")
+            static let warning = NSColor(hex: "F59E0B")
         }
     }
     
@@ -178,12 +231,12 @@ struct SharpPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 14, weight: .bold))
-            .foregroundColor(.white)
+            .foregroundColor(Theme.Colors.fixedWhite)
             .padding(.horizontal, Theme.Spacing.xl)
             .padding(.vertical, Theme.Spacing.md)
             .background(
-                configuration.isPressed 
-                    ? Theme.Colors.darkGreen 
+                configuration.isPressed
+                    ? Theme.Colors.darkGreen
                     : (isEnabled ? Theme.Colors.sharpGreen : Theme.Colors.textSecondary)
             )
             .animation(Theme.animation, value: configuration.isPressed)
@@ -253,7 +306,7 @@ extension View {
     func sharpCard() -> some View {
         self
             .padding(Theme.Spacing.xxl)
-            .background(Theme.Colors.background)
+            .background(Theme.Colors.cardBackground)
             .overlay(
                 Rectangle()
                     .stroke(Theme.Colors.border, lineWidth: 1)

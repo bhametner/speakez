@@ -27,6 +27,12 @@ enum Log {
     /// Logger for permissions
     static let permissions = Logger(subsystem: subsystem, category: "permissions")
 
+    /// Logger for vocabulary radar
+    static let vocabularyRadar = Logger(subsystem: subsystem, category: "vocabularyRadar")
+
+    /// Logger for local API server
+    static let api = Logger(subsystem: subsystem, category: "api")
+
     // MARK: - Private
 
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.speakez"
@@ -37,22 +43,22 @@ enum Log {
 extension Logger {
     /// Log a debug message (only visible in Console.app with debug level enabled)
     func debug(_ message: String) {
-        self.debug("\(message, privacy: .public)")
+        self.debug("\(message, privacy: .private)")
     }
 
     /// Log an info message
     func info(_ message: String) {
-        self.info("\(message, privacy: .public)")
+        self.info("\(message, privacy: .private)")
     }
 
     /// Log a warning message
     func warning(_ message: String) {
-        self.warning("\(message, privacy: .public)")
+        self.warning("\(message, privacy: .private)")
     }
 
     /// Log an error message
     func error(_ message: String) {
-        self.error("\(message, privacy: .public)")
+        self.error("\(message, privacy: .private)")
     }
 
     /// Log performance metrics

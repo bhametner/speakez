@@ -100,6 +100,11 @@ targets:
         INFOPLIST_FILE: SpeakezTests/Info.plist
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Speakez.app/Contents/MacOS/Speakez"
+        PRODUCT_MODULE_NAME: SpeakezTests
+        HEADER_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/Frameworks/whisper"
+        LIBRARY_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/Frameworks/whisper"
     dependencies:
       - target: Speakez
 
